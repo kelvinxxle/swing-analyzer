@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Analysis Failed - Swing Analyzer</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800&amp;family=Inter:wght@400;500&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-variant": "#353535",
+                        "on-tertiary-fixed-variant": "#374956",
+                        "on-secondary-container": "#bab8b7",
+                        "accent-electric": "#CCFF00",
+                        "on-primary-fixed": "#161e00",
+                        "inverse-on-surface": "#303030",
+                        "surface-container-highest": "#353535",
+                        "on-tertiary-container": "#556774",
+                        "surface-overlay": "#2A2A2A",
+                        "secondary-container": "#4a4949",
+                        "primary-container": "#c3f400",
+                        "on-tertiary-fixed": "#0b1d29",
+                        "tertiary": "#ffffff",
+                        "on-surface-secondary": "#A1A1A1",
+                        "tertiary-container": "#d2e5f5",
+                        "surface-bright": "#393939",
+                        "on-tertiary": "#21323e",
+                        "on-primary": "#283500",
+                        "on-surface-variant": "#c4c9ac",
+                        "status-error": "#FF4444",
+                        "surface": "#131313",
+                        "on-background": "#e5e2e1",
+                        "on-secondary": "#313030",
+                        "surface-container-high": "#2a2a2a",
+                        "background": "#131313",
+                        "primary-fixed-dim": "#abd600",
+                        "status-warning": "#FFB800",
+                        "primary": "#ffffff",
+                        "surface-base": "#121212",
+                        "secondary-fixed": "#e5e2e1",
+                        "inverse-primary": "#506600",
+                        "surface-tint": "#abd600",
+                        "on-surface-primary": "#FFFFFF",
+                        "outline-variant": "#444933",
+                        "on-primary-container": "#556d00",
+                        "error": "#ffb4ab",
+                        "surface-container": "#202020",
+                        "secondary-fixed-dim": "#c8c6c5",
+                        "error-container": "#93000a",
+                        "on-secondary-fixed-variant": "#474646",
+                        "surface-dim": "#131313",
+                        "surface-container-low": "#1b1b1c",
+                        "surface-container-lowest": "#0e0e0e",
+                        "surface-elevated": "#1E1E1E",
+                        "outline": "#8e9379",
+                        "on-error-container": "#ffdad6",
+                        "on-secondary-fixed": "#1c1b1b",
+                        "tertiary-fixed-dim": "#b6c9d8",
+                        "tertiary-fixed": "#d2e5f5",
+                        "on-error": "#690005",
+                        "secondary": "#c8c6c5",
+                        "primary-fixed": "#c3f400",
+                        "on-primary-fixed-variant": "#3c4d00",
+                        "inverse-surface": "#e5e2e1",
+                        "on-surface": "#e5e2e1"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "margin-mobile": "16px",
+                        "container-max-width": "800px",
+                        "gutter": "16px",
+                        "unit": "4px",
+                        "margin-desktop": "32px"
+                    },
+                    "fontFamily": {
+                        "data-label": ["JetBrains Mono"],
+                        "headline-lg": ["Hanken Grotesk"],
+                        "headline-lg-mobile": ["Hanken Grotesk"],
+                        "button-text": ["Hanken Grotesk"],
+                        "body-md": ["Inter"],
+                        "headline-xl": ["Hanken Grotesk"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "data-label": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                        "button-text": ["16px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-xl": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "800" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #121212; color: #e5e2e1; }
+        .grid-bg {
+            background-image: linear-gradient(to right, #353535 1px, transparent 1px),
+                              linear-gradient(to bottom, #353535 1px, transparent 1px);
+            background-size: 32px 32px;
+            opacity: 0.2;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="min-h-screen flex flex-col font-body-md antialiased overflow-x-hidden">
+<!-- Grid Background -->
+<div class="fixed inset-0 grid-bg pointer-events-none z-0"></div>
+<!-- Error Banner -->
+<div class="fixed top-0 w-full z-50 bg-status-error text-white font-data-label text-data-label uppercase py-2 px-4 text-center tracking-widest shadow-md">
+        System Alert: Invalid Video Input Detected
+    </div>
+<!-- Main Canvas -->
+<main class="flex-grow flex flex-col items-center justify-center p-gutter z-10 w-full max-w-container-max-width mx-auto mt-12 pb-24">
+<!-- Error State Container -->
+<div class="bg-surface-elevated w-full rounded-xl border border-status-error/30 p-8 flex flex-col items-center text-center shadow-lg relative overflow-hidden">
+<!-- Subtle red glow behind icon -->
+<div class="absolute top-12 left-1/2 -translate-x-1/2 w-32 h-32 bg-status-error/10 blur-2xl rounded-full pointer-events-none"></div>
+<span class="material-symbols-outlined text-status-error text-6xl mb-6 drop-shadow-md" style="font-variation-settings: 'FILL' 1;">
+                error
+            </span>
+<h1 class="font-headline-xl text-headline-xl text-status-error mb-2 tracking-tighter uppercase">
+                Analysis Failed
+            </h1>
+<p class="font-body-md text-body-md text-on-surface-secondary mb-8 max-w-md">
+                The video provided does not meet the guidelines required for auto-detection. Our system cannot accurately diagnose your swing.
+            </p>
+<!-- Reasons List (Bento-style items) -->
+<div class="w-full grid grid-cols-1 md:grid-cols-3 gap-4 mb-10 text-left">
+<div class="bg-surface-overlay p-4 rounded-lg border border-surface-variant flex flex-col items-start">
+<span class="material-symbols-outlined text-status-warning mb-2">videocam_off</span>
+<span class="font-data-label text-data-label text-on-surface-secondary mb-1">REASON 01</span>
+<span class="font-body-sm text-body-sm text-on-surface font-semibold">Angle too wide</span>
+</div>
+<div class="bg-surface-overlay p-4 rounded-lg border border-surface-variant flex flex-col items-start">
+<span class="material-symbols-outlined text-status-warning mb-2">brightness_low</span>
+<span class="font-data-label text-data-label text-on-surface-secondary mb-1">REASON 02</span>
+<span class="font-body-sm text-body-sm text-on-surface font-semibold">Low lighting</span>
+</div>
+<div class="bg-surface-overlay p-4 rounded-lg border border-surface-variant flex flex-col items-start">
+<span class="material-symbols-outlined text-status-warning mb-2">person_off</span>
+<span class="font-data-label text-data-label text-on-surface-secondary mb-1">REASON 03</span>
+<span class="font-body-sm text-body-sm text-on-surface font-semibold">No golfer detected</span>
+</div>
+</div>
+<!-- CTA -->
+<button class="w-full md:w-auto bg-accent-electric text-black font-button-text text-button-text py-4 px-12 rounded hover:brightness-110 active:scale-95 transition-all duration-200 flex items-center justify-center gap-2 border border-accent-electric">
+<span class="material-symbols-outlined">replay</span>
+                TRY AGAIN
+            </button>
+<p class="font-data-label text-data-label text-on-surface-secondary mt-6 uppercase tracking-widest opacity-60">
+                Review guidelines before re-uploading
+            </p>
+</div>
+</main>
+</body></html>
