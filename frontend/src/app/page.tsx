@@ -12,8 +12,8 @@ export default function Home() {
       </h1>
 
       <p className="mt-6 max-w-md font-sans text-body-md text-on-surface-secondary">
-        Precise, prioritized fixes for intermediate amateurs — fast. This is the
-        M1 foundation placeholder; the full experience ships across later
+        Precise, prioritized fixes for intermediate amateurs. This is the
+        M1 foundation placeholder. The full experience ships across later
         milestones.
       </p>
 
