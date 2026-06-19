@@ -80,8 +80,8 @@ After this, pushes to `main` deploy production and PRs get Vercel previews.
 
 | App | URL |
 |---|---|
-| Frontend (Vercel) | _add after setup_ |
-| Backend (Render)  | _add after setup_ |
+| Frontend (Vercel) | https://swing-analyzer-gray.vercel.app |
+| Backend (Render)  | https://swing-analyzer-backend-a73e.onrender.com |
 
 ## Design
 
