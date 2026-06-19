@@ -1,0 +1,16 @@
+# syntax: Render Blueprint — https://render.com/docs/blueprint-spec
+# Backend container for Swing Analyzer. Render reads this file when the repo
+# is connected as a Blueprint; pushes to the default branch auto-deploy.
+services:
+  - type: web
+    name: swing-analyzer-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Set this to the deployed Vercel frontend URL after the first deploy.
+      - key: ALLOWED_ORIGINS
+        sync: false

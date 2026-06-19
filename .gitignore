@@ -1,0 +1,24 @@
+# ---- Node / Next.js (frontend) ----
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+
+# ---- Python (backend) ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Env files (never commit secrets) ----
+.env
+.env.local
+.env.*.local
+
+# ---- OS / editor ----
+.DS_Store
+*.log
