@@ -13,7 +13,7 @@ export default function Home() {
 
       <p className="mt-6 max-w-md font-sans text-body-md text-on-surface-secondary">
         Precise, prioritized fixes for intermediate amateurs. This is the
-        M1 foundation placeholder The full experience ships across later
+        M1 foundation placeholder. The full experience ships across later
         milestones.
       </p>
 
