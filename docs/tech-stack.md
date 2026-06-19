@@ -17,15 +17,15 @@ analysis service. No database for v1.**
 
 ## Recommended stack
 
-| Layer | ✅ Recommended | One step away | Why this default |
-|---|---|---|---|
-| **Frontend** | **Next.js + TypeScript + Tailwind** | Vite + React; SvelteKit | Mockups are already Tailwind; mobile-first; high familiarity; one framework for UI + a thin upload API route. |
-| **Analysis backend** | **Python + FastAPI** | Flask | CV/pose lives in Python (MediaPipe, OpenCV, NumPy). FastAPI is fast, typed, async, and trivial to deploy. |
-| **Flaw detection** | **MediaPipe Pose + rule-based geometry** | Train a custom model | Keypoints → simple geometric rules per flaw. No model training, no labeled dataset. Biggest speed-to-ship win. |
-| **Database** | **None for v1** | Managed Postgres (Neon/Supabase) | PRD forbids persistence. Skip it → zero DB ops. Add later only for anonymous analytics. |
-| **File handling** | **Ephemeral temp storage** (process & discard) | S3 / Cloudflare R2 pre-signed upload | One-shot means the video is transient. Don't store it → no storage ops, no privacy surface. |
-| **Hosting** | **Vercel (frontend) + Render/Railway (Python container)** | Fly.io; single VPS | Vercel = zero-config Next.js. Container host for Python because CV is CPU-heavy and long-running (exceeds serverless limits). |
-| **Testing** | **Vitest + Playwright (FE), pytest (BE), golden video fixtures** | Cypress; Jest | Standard and familiar. The fixtures are the real safeguard for analysis correctness. |
+| Layer | ✅ Recommended | Why this default |
+|---|---|---|
+| **Frontend** | **Next.js + TypeScript + Tailwind** | Mockups are already Tailwind; mobile-first; high familiarity; one framework for UI + a thin upload API route. |
+| **Analysis backend** | **Python + FastAPI** | CV/pose lives in Python (MediaPipe, OpenCV, NumPy). FastAPI is fast, typed, async, and trivial to deploy. |
+| **Flaw detection** | **MediaPipe Pose + rule-based geometry** | Keypoints → simple geometric rules per flaw. No model training, no labeled dataset. Biggest speed-to-ship win. |
+| **Database** | **None for v1** | PRD forbids persistence. Skip it → zero DB ops. Add later only for anonymous analytics. |
+| **File handling** | **Ephemeral temp storage** (process & discard) | One-shot means the video is transient. Don't store it → no storage ops, no privacy surface. |
+| **Hosting** | **Vercel (frontend) + Render/Railway (Python container)** | Vercel = zero-config Next.js. Container host for Python because CV is CPU-heavy and long-running (exceeds serverless limits). |
+| **Testing** | **Vitest + Playwright (FE), pytest (BE), golden video fixtures** | Standard and familiar. The fixtures are the real safeguard for analysis correctness. |
 
 ## Trade-offs per major choice
 
@@ -66,7 +66,7 @@ analysis service. No database for v1.**
 ### Hosting — managed PaaS vs. serverless vs. VPS
 - **Vercel + Render/Railway:** push-to-deploy, generous free tiers, no server
   patching.
-- **Why not all-serverless:** a 50MB video + MediaPipe decode can exceed serverless
+- **Why not all-serverless:** a full-length video plus MediaPipe decode can exceed serverless
   time/memory/cold-start limits. A small always-on container is more predictable for
   CV.
 - **Why not a single VPS:** lower hosting cost, but you own patching, TLS, and
@@ -83,7 +83,7 @@ analysis service. No database for v1.**
 
 ```
 Mobile web (Next.js / Tailwind on Vercel)
-        │  upload 1 video (MP4/MOV ≤ 50MB)
+        │  upload 1 video (MP4/MOV)
         ▼
 FastAPI /analyze  (Python container, stateless)
    ├─ validate input → reject with reason if bad
@@ -108,9 +108,3 @@ Results screen (text-only, prioritized)   ← no DB, video discarded
   with a specific reason, per "do not best-effort analyze a bad video."
 - **Non-goals** — no persistence, no video editor, no Q&A. The stack deliberately has
   no database and no stored media.
-
-## Open follow-ups (not v1 blockers)
-
-- Decide whether to add anonymous analytics (would introduce a minimal DB).
-- Pick the exact 5–7 catalog flaws and define each detection rule.
-- Build the golden video fixture set for the test suite.
