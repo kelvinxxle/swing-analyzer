@@ -11,3 +11,14 @@
     @apply bg-surface-base text-on-surface-primary font-sans antialiased;
   }
 }
+
+@layer components {
+  /* Faint technical grid backdrop used on the rejection screen. */
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, theme("colors.surface.variant") 1px, transparent 1px),
+      linear-gradient(to bottom, theme("colors.surface.variant") 1px, transparent 1px);
+    background-size: 32px 32px;
+    opacity: 0.2;
+  }
+}
