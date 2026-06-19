@@ -1,37 +1,62 @@
-export default function Home() {
+import { CtaButton } from "@/components/CtaButton";
+import { GuidelineItem } from "@/components/GuidelineItem";
+import {
+  ArrowRightIcon,
+  LightbulbIcon,
+  ScanFrameIcon,
+  VideoIcon,
+} from "@/components/icons";
+
+const GUIDELINES = [
+  {
+    icon: VideoIcon,
+    title: "Record Down-the-Line",
+    description:
+      "Position the camera directly behind the hands, facing the target.",
+  },
+  {
+    icon: LightbulbIcon,
+    title: "Ensure Good Lighting",
+    description:
+      "Avoid heavy shadows. Bright, even lighting provides the best results.",
+  },
+  {
+    icon: ScanFrameIcon,
+    title: "Keep Full Swing in Frame",
+    description:
+      "The clubhead and body must remain visible from setup to finish.",
+  },
+];
+
+export default function WelcomePage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-container flex-col items-center justify-center px-margin-mobile py-16 text-center md:px-margin-desktop">
-      <p className="font-mono text-data-label uppercase text-accent-electric">
-        Swing Analyzer · v1
-      </p>
-
-      <h1 className="mt-4 font-display text-headline-lg-mobile text-on-surface-primary md:text-headline-xl">
-        Upload one swing.
-        <br />
-        Get your top flaws.
-      </h1>
-
-      <p className="mt-6 max-w-md font-sans text-body-md text-on-surface-secondary">
-        Precise, prioritized fixes for intermediate amateurs. This is the
-        M1 foundation placeholder. The full experience ships across later
-        milestones.
-      </p>
-
-      <div className="mt-10 w-full max-w-sm rounded-lg border border-dashed border-on-surface-secondary bg-surface-elevated p-gutter">
-        <span className="font-mono text-data-label uppercase text-on-surface-secondary">
-          Status
-        </span>
-        <p className="mt-2 font-sans text-body-sm text-on-surface-primary">
-          Foundation &amp; deploy pipeline online.
+    <main className="mx-auto flex min-h-dvh max-w-container flex-col px-margin-mobile pb-8 pt-16 md:px-margin-desktop">
+      <div className="flex flex-1 flex-col">
+        <h1 className="text-center font-display text-headline-xl text-on-surface-primary">
+          Master Your Swing
+        </h1>
+        <p className="mt-4 text-center font-sans text-body-md text-on-surface-secondary">
+          One swing. One angle. Fast diagnosis.
         </p>
+
+        <section className="mt-10 divide-y divide-surface-variant/60 rounded-lg border border-surface-variant/60 bg-surface-elevated px-gutter">
+          {GUIDELINES.map((g) => (
+            <GuidelineItem
+              key={g.title}
+              icon={g.icon}
+              title={g.title}
+              description={g.description}
+            />
+          ))}
+        </section>
       </div>
 
-      <button
-        type="button"
-        className="mt-10 w-full max-w-sm rounded bg-accent-electric px-6 py-3 font-display text-button-text uppercase text-surface-base transition hover:brightness-110"
-      >
-        Coming soon
-      </button>
+      <div className="mt-10">
+        <CtaButton href="/upload">
+          Got it, Let&apos;s Analyze
+          <ArrowRightIcon className="h-5 w-5" />
+        </CtaButton>
+      </div>
     </main>
   );
 }
