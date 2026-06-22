@@ -1,30 +1,12 @@
-import type { ComponentType, SVGProps } from "react";
-import {
-  BrightnessLowIcon,
-  PersonOffIcon,
-  VideoOffIcon,
-} from "@/components/icons";
+import type { Flaw, RejectionReason } from "@/lib/analysis";
+
+export type { Flaw, RejectionReason } from "@/lib/analysis";
 
 /**
- * MOCK data for the static M2 build. The live upload → analyze loop lands in
- * M3, and the real flaw catalog / validation in M5–M6. These shapes mirror the
- * PRD: top 2–3 flaws, each with one fix tip (text only); rejection screen shows
- * specific reasons.
+ * Sample data mirroring the live `/analyze` contract. Used as a graceful
+ * fallback when a result screen is opened directly (no upload in this tab) and
+ * as fixtures for tests. The real flaw catalog / validation land in M5–M6.
  */
-
-export type Flaw = {
-  priority: number;
-  category: string;
-  title: string;
-  description: string;
-  fix: string;
-};
-
-export type RejectionReason = {
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-  label: string;
-  title: string;
-};
 
 export const MOCK_FLAWS: Flaw[] = [
   {
@@ -46,7 +28,7 @@ export const MOCK_FLAWS: Flaw[] = [
 ];
 
 export const MOCK_REJECTION_REASONS: RejectionReason[] = [
-  { icon: VideoOffIcon, label: "Reason 01", title: "Angle too wide" },
-  { icon: BrightnessLowIcon, label: "Reason 02", title: "Low lighting" },
-  { icon: PersonOffIcon, label: "Reason 03", title: "No golfer detected" },
+  { code: "angle", label: "Reason 01", title: "Angle too wide" },
+  { code: "lighting", label: "Reason 02", title: "Low lighting" },
+  { code: "no_golfer", label: "Reason 03", title: "No golfer detected" },
 ];

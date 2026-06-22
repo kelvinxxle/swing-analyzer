@@ -1,15 +1,28 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { CtaButton } from "@/components/CtaButton";
 import { ReasonCard } from "@/components/ReasonCard";
 import { ErrorCircleIcon, ReplayIcon } from "@/components/icons";
-import { MOCK_REJECTION_REASONS } from "@/lib/mock-data";
+import { readAnalysis, type Rejection } from "@/lib/analysis";
+
+const FALLBACK_SUMMARY =
+  "The video provided does not meet the guidelines required for auto-detection. Our system cannot accurately diagnose your swing.";
 
 export default function ErrorPage() {
+  const [reason, setReason] = useState<Rejection | null>(null);
+
+  useEffect(() => {
+    const result = readAnalysis();
+    setReason(result?.reason ?? null);
+  }, []);
+
   return (
     <div className="relative flex min-h-dvh flex-col overflow-hidden">
       <div aria-hidden className="pointer-events-none fixed inset-0 grid-bg" />
 
       <div className="fixed top-0 z-50 w-full bg-status-error px-4 py-2 text-center font-mono text-data-label uppercase tracking-widest text-white shadow-md">
-        System Alert: Invalid Video Input Detected
+        System Alert: {reason?.headline ?? "Invalid Video Input Detected"}
       </div>
 
       <main className="relative z-10 mx-auto flex w-full max-w-container flex-1 flex-col items-center justify-center px-margin-mobile pb-16 pt-20 md:px-margin-desktop">
@@ -26,15 +39,16 @@ export default function ErrorPage() {
           </h1>
 
           <p className="mx-auto mt-3 max-w-md font-sans text-body-md text-on-surface-secondary">
-            The video provided does not meet the guidelines required for
-            auto-detection. Our system cannot accurately diagnose your swing.
+            {reason?.summary ?? FALLBACK_SUMMARY}
           </p>
 
-          <div className="mt-8 grid grid-cols-1 gap-4 text-left md:grid-cols-3">
-            {MOCK_REJECTION_REASONS.map((reason) => (
-              <ReasonCard key={reason.label} reason={reason} />
-            ))}
-          </div>
+          {reason?.details?.length ? (
+            <div className="mt-8 grid grid-cols-1 gap-4 text-left md:grid-cols-3">
+              {reason.details?.map((detail) => (
+                <ReasonCard key={detail.label} reason={detail} />
+              ))}
+            </div>
+          ) : null}
 
           <div className="mt-10">
             <CtaButton href="/upload" className="md:mx-auto md:w-auto md:px-12">
