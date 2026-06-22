@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "_comment": "Golden-fixture manifest. Each clip maps a real or generated video to its expected /analyze outcome. See README.md for how to add a clip and the capture gate it must pass. Entries with a `file` that is not committed yet are SKIPPED by the loader (keeps CI green with a partial set); entries with a `generator` are built programmatically at test time.",
+  "clips": [
+    {
+      "id": "good-dtl-01",
+      "bucket": "good",
+      "file": "good/good-dtl-01.mp4",
+      "expect": { "status": "no_major_flaws" },
+      "source": null
+    },
+    {
+      "id": "good-dtl-02",
+      "bucket": "good",
+      "file": "good/good-dtl-02.mp4",
+      "expect": { "status": "no_major_flaws" },
+      "source": null
+    },
+    {
+      "id": "early-extension-01",
+      "bucket": "flaw",
+      "file": "flaws/early-extension-01.mp4",
+      "expect": { "status": "analyzed", "flaw_in_top": "early_extension", "max_priority": 3 },
+      "source": null
+    },
+    {
+      "id": "loss-of-posture-01",
+      "bucket": "flaw",
+      "file": "flaws/loss-of-posture-01.mp4",
+      "expect": { "status": "analyzed", "flaw_in_top": "loss_of_posture", "max_priority": 3 },
+      "source": null
+    },
+    {
+      "id": "head-sway-01",
+      "bucket": "flaw",
+      "file": "flaws/head-sway-01.mp4",
+      "expect": { "status": "analyzed", "flaw_in_top": "head_sway", "max_priority": 3 },
+      "source": null
+    },
+    {
+      "id": "loss-of-knee-flex-01",
+      "bucket": "flaw",
+      "file": "flaws/loss-of-knee-flex-01.mp4",
+      "expect": { "status": "analyzed", "flaw_in_top": "loss_of_knee_flex", "max_priority": 3 },
+      "source": null
+    },
+    {
+      "id": "over-the-top-01",
+      "bucket": "flaw",
+      "file": "flaws/over-the-top-01.mp4",
+      "expect": { "status": "analyzed", "flaw_in_top": "over_the_top", "max_priority": 3 },
+      "source": null
+    },
+    {
+      "id": "bad-dark-01",
+      "bucket": "bad_input",
+      "generator": { "kind": "dark" },
+      "expect": { "status": "rejected", "reason_code": "lighting" }
+    },
+    {
+      "id": "bad-too-short-01",
+      "bucket": "bad_input",
+      "generator": { "kind": "too_short" },
+      "expect": { "status": "rejected", "reason_code": "too_short" }
+    },
+    {
+      "id": "bad-low-resolution-01",
+      "bucket": "bad_input",
+      "generator": { "kind": "low_resolution" },
+      "expect": { "status": "rejected", "reason_code": "low_resolution" }
+    },
+    {
+      "id": "bad-no-golfer-01",
+      "bucket": "bad_input",
+      "generator": { "kind": "no_golfer" },
+      "expect": { "status": "rejected", "reason_code": "no_golfer" }
+    },
+    {
+      "id": "bad-unreadable-01",
+      "bucket": "bad_input",
+      "generator": { "kind": "unreadable" },
+      "expect": { "status": "rejected", "reason_code": "unreadable" }
+    },
+    {
+      "id": "bad-angle-face-on-01",
+      "bucket": "bad_input",
+      "file": "bad/angle-face-on-01.mp4",
+      "expect": { "status": "rejected", "reason_code": "angle" },
+      "source": null
+    },
+    {
+      "id": "bad-framing-01",
+      "bucket": "bad_input",
+      "file": "bad/framing-out-of-frame-01.mp4",
+      "expect": { "status": "rejected", "reason_code": "framing" },
+      "source": null
+    }
+  ]
+}

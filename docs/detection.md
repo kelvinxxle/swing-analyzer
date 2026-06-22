@@ -128,4 +128,22 @@ All hermetic, over synthetic `PoseSeries` fixtures (no real clips — those are 
   and the `no_major_flaws` zero result.
 - `tests/test_analyze.py` — the wired endpoint drives the **real engine** through
   a stubbed gate (flawed series → `analyzed` with ranked flaws; clean →
-  `no_major_flaws`), plus the canned `scenario` overrides.
+  `no_major_flaws`), plus the canned `scenario` overrides, and the M7 hardening
+  paths (oversize → 413, processing timeout → 504, unexpected fault → 500).
+
+## Golden fixtures (M7)
+
+The synthetic-`PoseSeries` tests above prove each rule in isolation but never run
+a **real clip** end-to-end. M7 adds a golden harness at
+[`tests/fixtures/golden/`](../backend/tests/fixtures/golden/) that closes that
+gap: a JSON `manifest.json` maps each catalogued clip to its expected result, and
+[`tests/test_golden_fixtures.py`](../backend/tests/test_golden_fixtures.py) runs
+every clip through the real `validate_video` → `detect_flaws` pipeline.
+
+Per-flaw assertions check **membership + a priority bound** (the target flaw is in
+the reported top 2–3, ranked ≤ a max priority) rather than an exact score or
+order, so first-pass threshold tuning won't make the suite brittle. Real good/flaw
+footage is committed only when its license is cleared
+([`fixtures-credits.md`](./fixtures-credits.md)); uncommitted buckets **skip with a
+clear message** so CI stays green while clips are added. Real-clip threshold
+tuning happens against this harness as labeled footage lands.

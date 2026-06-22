@@ -85,6 +85,9 @@ describe("parseAnalyzeResponse", () => {
       "low_resolution",
       "too_short",
       "framing",
+      "lighting",
+      "no_golfer",
+      "angle",
     ]) {
       const parsed = parseAnalyzeResponse({
         status: "rejected",
@@ -97,6 +100,31 @@ describe("parseAnalyzeResponse", () => {
       });
       expect(parsed.reason?.details[0].code).toBe(code);
     }
+  });
+
+  it("accepts a no_major_flaws response with an empty flaw list", () => {
+    const parsed = parseAnalyzeResponse({
+      status: "no_major_flaws",
+      flaws: [],
+      reason: null,
+    });
+    expect(parsed.status).toBe("no_major_flaws");
+    expect(parsed.flaws).toHaveLength(0);
+  });
+
+  it("preserves the priority order of multiple flaws", () => {
+    const parsed = parseAnalyzeResponse({
+      status: "analyzed",
+      flaws: [
+        { priority: 1, category: "Posture Loss", title: "Early Extension", description: "d", fix: "f" },
+        { priority: 2, category: "Path", title: "Over the Top", description: "d", fix: "f" },
+      ],
+    });
+    expect(parsed.flaws.map((f) => f.priority)).toEqual([1, 2]);
+    expect(parsed.flaws.map((f) => f.title)).toEqual([
+      "Early Extension",
+      "Over the Top",
+    ]);
   });
 
   it("rejects a reason detail with an unknown code", () => {

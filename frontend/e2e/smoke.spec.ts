@@ -66,6 +66,16 @@ async function stubAnalyze(page: Page, body: unknown) {
   });
 }
 
+async function stubAnalyzeStatus(page: Page, status: number, body: unknown) {
+  await page.route("**/analyze", async (route) => {
+    await route.fulfill({
+      status,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+  });
+}
+
 async function selectVideo(page: Page) {
   await page.goto("/upload");
   await page.getByTestId("swing-file-input").setInputFiles({
@@ -145,6 +155,44 @@ test.describe("M3 upload → analyze loop", () => {
     await expect(page.getByText(/clip too short/i)).toBeVisible();
 
     await page.getByRole("link", { name: /try again/i }).click();
+    await expect(page).toHaveURL(/\/upload$/);
+  });
+
+  test("shows the in-progress screen before routing to results", async ({
+    page,
+  }) => {
+    // Hold the response briefly so the intermediate busy state is observable
+    // (uploading bytes, then backend extracting pose / detecting flaws).
+    await page.route("**/analyze", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(CLEAN_RESPONSE),
+      });
+    });
+    await selectVideo(page);
+
+    await expect(
+      page.getByText(/uploading swing|analyzing swing/i),
+    ).toBeVisible();
+    await expect(page).toHaveURL(/\/results$/, { timeout: 15_000 });
+    await expect(
+      page.getByRole("heading", { name: /no major flaws detected/i }),
+    ).toBeVisible();
+  });
+
+  test("a 503 from the backend shows a graceful error and stays on upload", async ({
+    page,
+  }) => {
+    // M7 hardening: a timeout/overload surfaces as a non-2xx. The upload screen
+    // must show an inline error rather than crash or navigate to a junk result.
+    await stubAnalyzeStatus(page, 503, { detail: "service unavailable" });
+    await selectVideo(page);
+
+    const error = page.getByText(/the analysis service had a problem/i);
+    await expect(error).toBeVisible();
+    await expect(error).toHaveAttribute("role", "alert");
     await expect(page).toHaveURL(/\/upload$/);
   });
 });

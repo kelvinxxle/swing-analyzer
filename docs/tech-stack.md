@@ -77,7 +77,10 @@ analysis service. No database for v1.**
   correctness**, so the key investment is a **golden fixture suite**: a folder of
   labeled clips (good swings, each catalog flaw, and bad-input cases — dark, wrong
   angle, no golfer) with expected outputs. This validates both the detection *and*
-  the PRD's "reject bad input with a specific reason" rule.
+  the PRD's "reject bad input with a specific reason" rule. **Shipped in M7** — see
+  the [Production hardening & performance](#production-hardening--performance-m7)
+  section; the suite skips buckets whose footage is not yet committed so CI stays
+  green while clips are added incrementally.
 
 ## Architecture at a glance
 
@@ -147,6 +150,53 @@ browser → backend `POST` is the simplest path that actually carries real clips
 > only**: `flaws`/`clean`/`rejected` short-circuit to a fixed screen so all three
 > paths stay demoable on the deployed URLs. Filename inference has been removed —
 > it must never hijack real detection.
+
+## Production hardening & performance (M7)
+
+The `/analyze` path is CPU-bound (video decode + MediaPipe pose + geometric
+rules). M7 added transport-level guardrails around it **without** changing the
+`{ status, flaws[], reason? }` wire shape — failures surface as HTTP status
+codes, never as new domain statuses:
+
+| Guardrail | Env knob (default) | Behaviour |
+|---|---|---|
+| Upload size cap | `MAX_UPLOAD_BYTES` (50MB) | Refuses an oversized request up front from its `Content-Length` (middleware, before the body is parsed) with **413**; a streaming chunk-abort while draining to a temp file is kept as defense-in-depth for a missing/dishonest `Content-Length`. Matches the 50MB the UI advertises. |
+| Processing timeout | `MAX_ANALYSIS_SECONDS` (60s) | The gate + detection share **one** wall-clock deadline computed per request (validate runs, then detect runs against the remaining time), so their *combined* time is bounded by the single budget; exceeding it returns **504**. |
+| Fault isolation | — | Any unexpected exception in validation/detection becomes a controlled **500** (clear detail, no stack leak, no silent wrong answer); temp files are always cleaned up in `finally`. |
+
+The M5 **gate-first** property is preserved: the validation gate still runs
+before any success path, so a bad clip can never reach detection.
+
+### Measured latency
+
+Reference numbers on a dev machine (Apple-silicon laptop), 720×1280 ~3s / 90-frame
+synthetic clip:
+
+| Stage | Cold | Warm |
+|---|---|---|
+| Module import | 0.34s | — |
+| `validate_video` (incl. MediaPipe model load) | 1.14s | ~0.6s pose pass |
+| `detect_flaws` over in-memory pose series | <1ms | <1ms |
+
+The `max_frames=150` sampling cap bounds the pose pass regardless of clip length.
+On Render's free tier (shared vCPU, no GPU) expect this to be **several× slower**,
+plus a container cold-start of tens of seconds after idle — the default 60s
+`MAX_ANALYSIS_SECONDS` budget leaves headroom for a real clip on that hardware.
+
+### Golden-fixture harness
+
+The real correctness safeguard now exists at
+`backend/tests/fixtures/golden/` (manifest + loader,
+`backend/tests/test_golden_fixtures.py`). It runs each catalogued clip through the
+**real** `validate_video` → `detect_flaws` pipeline and asserts the expected
+result kind (good → `no_major_flaws`; per-flaw → that flaw is in the top 2–3 by
+membership + priority bound; bad-input → `rejected` with a specific reason code).
+Bad-input clips are generated programmatically (dark, too-short, low-resolution,
+no-golfer, unreadable); real good/flaw footage is committed only when its license
+is cleared (see [`fixtures-credits.md`](./fixtures-credits.md)). Buckets without a
+committed clip **skip with a clear message**, so CI stays green as footage is
+added incrementally. See the
+[golden README](../backend/tests/fixtures/golden/README.md) for how to add a clip.
 
 ## How this maps to the PRD
 

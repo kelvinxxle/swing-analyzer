@@ -289,6 +289,117 @@ def test_analyze_rejects_non_video_content_type() -> None:
     assert response.status_code == 400
 
 
+# --- M7 production hardening -------------------------------------------------
+
+
+def test_analyze_rejects_oversized_upload(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A tiny cap makes the size guard fire without generating a real large file.
+    import app.main as main
+
+    monkeypatch.setattr(main, "_max_upload_bytes", lambda: 8)
+    files = {"file": ("clip.mp4", io.BytesIO(b"way more than eight bytes"), "video/mp4")}
+    response = client.post("/analyze", files=files)
+    assert response.status_code == 413
+    # Sub-MB caps must never render as "0MB" (the message shows real bytes).
+    detail = response.json()["detail"]
+    assert "0MB" not in detail
+    assert "8 bytes" in detail
+
+
+def test_oversized_content_length_rejected_before_body_is_processed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The middleware refuses a too-large Content-Length up front: the handler's
+    # drain/gate never run, so the oversized body is never processed.
+    import app.main as main
+
+    drained = False
+
+    async def _spy_drain(*_a: object, **_k: object) -> int:
+        nonlocal drained
+        drained = True
+        return 0
+
+    monkeypatch.setattr(main, "_max_upload_bytes", lambda: 8)
+    monkeypatch.setattr(main, "_drain_to_path", _spy_drain)
+    files = {"file": ("clip.mp4", io.BytesIO(b"way more than eight bytes"), "video/mp4")}
+    response = client.post("/analyze", files=files)
+    assert response.status_code == 413
+    assert drained is False, "the body was processed despite an oversized Content-Length"
+
+
+def test_analyze_times_out_slow_processing(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A near-zero budget + a gate that blocks → the request returns a clean 504
+    # rather than pinning the event loop on the CPU-bound path.
+    import time
+
+    import app.main as main
+    from app.validation.result import ValidationResult
+
+    def _slow_gate(*_a: object, **_k: object) -> tuple[ValidationResult, None]:
+        time.sleep(0.5)
+        return ValidationResult(), None
+
+    monkeypatch.setattr(main, "_max_analysis_seconds", lambda: 0.05)
+    monkeypatch.setattr(main, "validate_video", _slow_gate)
+    response = client.post("/analyze", files=_video())
+    assert response.status_code == 504
+
+
+def test_analyze_budget_is_shared_across_gate_and_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The gate and the engine share ONE wall-clock budget. Each stage alone is
+    # under budget, but together they exceed it → 504. (If each got a fresh budget
+    # this would pass, so this test pins the shared-deadline behavior.)
+    import time
+
+    import app.main as main
+    from app.analysis import AnalysisStatus
+    from app.validation.result import ValidationResult
+
+    def _gate(*_a: object, **_k: object) -> tuple[ValidationResult, object]:
+        time.sleep(0.07)
+        return ValidationResult(), object()  # passes the gate + yields a series
+
+    def _engine(*_a: object, **_k: object) -> tuple[AnalysisStatus, list[object]]:
+        time.sleep(0.07)
+        return AnalysisStatus.NO_MAJOR_FLAWS, []
+
+    monkeypatch.setattr(main, "_max_analysis_seconds", lambda: 0.1)
+    monkeypatch.setattr(main, "validate_video", _gate)
+    monkeypatch.setattr(main, "detect_flaws", _engine)
+    response = client.post("/analyze", files=_video())
+    assert response.status_code == 504
+
+
+def test_analyze_unexpected_fault_is_a_clean_500(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An unexpected error inside the gate must surface as a controlled 500 (no
+    # silent wrong-answer, no traceback leak), with the temp upload still cleaned.
+    import app.main as main
+
+    def _boom(*_a: object, **_k: object) -> tuple[object, None]:
+        raise ValueError("synthetic pipeline fault")
+
+    monkeypatch.setattr(main, "validate_video", _boom)
+    response = client.post("/analyze", files=_video())
+    assert response.status_code == 500
+
+
+def test_oversized_upload_leaves_no_temp_files(
+    temp_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An oversized 413 (here via the Content-Length middleware) must leave no
+    # ephemeral temp artifacts behind — the handler never runs, so none are made.
+    import app.main as main
+
+    monkeypatch.setattr(main, "_max_upload_bytes", lambda: 8)
+    files = {"file": ("clip.mp4", io.BytesIO(b"too many bytes here"), "video/mp4")}
+    response = client.post("/analyze", files=files)
+    assert response.status_code == 413
+    assert list(temp_root.iterdir()) == []
+
+
 @pytest.fixture
 def temp_root() -> Iterator[Path]:
     """Point tempfile at an isolated dir so we can assert it ends up empty."""

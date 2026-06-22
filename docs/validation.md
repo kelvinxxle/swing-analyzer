@@ -153,3 +153,15 @@ service stays stateless.
   is deferred to M7 (golden fixtures).
 - `frontend/src/lib/analysis.test.ts`, `ReasonCard.test.tsx`, `e2e/smoke.spec.ts`
   — the new codes parse, render an icon, and route to the Error screen.
+
+## Golden fixtures (M7)
+
+Validation is also exercised end-to-end by the golden harness
+([`tests/test_golden_fixtures.py`](../backend/tests/test_golden_fixtures.py)). Its
+bad-input bucket drives **programmatically generated** clips through the real gate
+and asserts the exact rejection code: all-black frames → `lighting`, a sub-second
+clip → `too_short`, a 64×48 clip → `low_resolution`, a human-free clip →
+`no_golfer` (real MediaPipe finds no pose), and random non-video bytes →
+`unreadable`. `angle`/`framing` cannot be synthesized (no real human → no pose at
+all), so they remain documented skips covered by the unit checks above. See the
+[golden README](../backend/tests/fixtures/golden/README.md).
