@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { BottomNav } from "@/components/BottomNav";
 import { UploadDropzone } from "@/components/UploadDropzone";
@@ -19,15 +18,6 @@ export default function UploadPage() {
         <div className="mt-10">
           <UploadDropzone />
         </div>
-
-        <p className="mt-10 text-center">
-          <Link
-            href="/error"
-            className="font-mono text-data-label uppercase tracking-wider text-on-surface-secondary underline-offset-4 hover:text-status-error hover:underline"
-          >
-            Simulate rejection
-          </Link>
-        </p>
       </main>
 
       <BottomNav active="upload" />

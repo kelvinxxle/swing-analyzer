@@ -96,6 +96,52 @@ FastAPI /analyze  (Python container, stateless)
 Results screen (text-only, prioritized)   ← no DB, video discarded
 ```
 
+## The `/analyze` contract
+
+The frontend talks to the backend over a single endpoint. The browser uploads to
+a same-origin Next.js proxy route (`/api/analyze`), which forwards the multipart
+body to the FastAPI service — keeping CORS clean and the backend URL server-side.
+
+**Request** — `POST /analyze`, `multipart/form-data`:
+
+| Field | Required | Notes |
+|---|---|---|
+| `file` | ✅ | The swing video (MP4/MOV). Streamed to a temp file, then discarded. |
+| `scenario` | — | `flaws` \| `clean` \| `rejected`. Test/demo override (see below). |
+
+**Response** — `200 application/json`, shaped `{ status, flaws[], reason? }`:
+
+```jsonc
+{
+  "status": "analyzed" | "no_major_flaws" | "rejected",
+  "flaws": [
+    { "priority": 1, "category": "Posture Loss", "title": "Early Extension",
+      "description": "…", "fix": "…" }
+  ],
+  "reason": {                       // present only when status == "rejected"
+    "headline": "Invalid Video Input Detected",
+    "summary": "The video provided does not meet the guidelines…",
+    "details": [
+      { "code": "angle", "label": "Reason 01", "title": "Angle too wide" }
+    ]
+  }
+}
+```
+
+- `analyzed` → 2–3 `flaws`, each with a fix tip → **results** screen.
+- `no_major_flaws` → empty `flaws` → **results** screen, positive state (a valid
+  PRD result — never pad the list to hit a number).
+- `rejected` → populated `reason` → **error** screen. `details[].code` (`angle`,
+  `lighting`, `no_golfer`) maps to an icon on the frontend.
+- `400` for genuinely bad requests (missing/empty file, non-video content-type) —
+  a transport error, distinct from a domain `rejected` result.
+
+> **M3 status:** results are **mocked** — real pose extraction and flaw detection
+> land in M4–M6. The mock case is chosen deterministically: an explicit
+> `scenario` field wins, otherwise it is inferred from the uploaded filename
+> (e.g. `bad-angle.mp4` → rejected, `good-swing.mp4` → no major flaws), so all
+> three paths are demoable on the deployed URLs.
+
 ## How this maps to the PRD
 
 - **In scope** — 1 swing, 1 prescribed angle, auto-detected flaws, top 2–3 with fix

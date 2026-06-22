@@ -1,11 +1,12 @@
-import type { RejectionReason } from "@/lib/mock-data";
+import { REASON_ICONS, type RejectionReason } from "@/lib/analysis";
 
 /**
  * A single rejection reason on the error screen: a warning-colored icon, a
- * monospaced "REASON 0N" label, and the specific reason text.
+ * monospaced "REASON 0N" label, and the specific reason text. The icon is
+ * resolved from the serializable `code` returned by the API.
  */
 export function ReasonCard({ reason }: { reason: RejectionReason }) {
-  const Icon = reason.icon;
+  const Icon = REASON_ICONS[reason.code];
   return (
     <div className="flex flex-col items-start rounded-lg border border-surface-variant bg-surface-overlay p-4 text-left">
       <Icon className="mb-3 h-6 w-6 text-status-warning" />
