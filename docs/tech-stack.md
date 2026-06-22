@@ -160,8 +160,8 @@ codes, never as new domain statuses:
 
 | Guardrail | Env knob (default) | Behaviour |
 |---|---|---|
-| Upload size cap | `MAX_UPLOAD_BYTES` (50MB) | Streams the upload to a temp file and aborts with **413** once the cap is exceeded — never buffers an unbounded body. Matches the 50MB the UI advertises. |
-| Processing timeout | `MAX_ANALYSIS_SECONDS` (60s) | The gate + detection run in a worker thread under `asyncio.wait_for`; exceeding the budget returns **504** with a clear detail. |
+| Upload size cap | `MAX_UPLOAD_BYTES` (50MB) | Refuses an oversized request up front from its `Content-Length` (middleware, before the body is parsed) with **413**; a streaming chunk-abort while draining to a temp file is kept as defense-in-depth for a missing/dishonest `Content-Length`. Matches the 50MB the UI advertises. |
+| Processing timeout | `MAX_ANALYSIS_SECONDS` (60s) | The gate + detection share **one** wall-clock deadline computed per request (validate runs, then detect runs against the remaining time), so their *combined* time is bounded by the single budget; exceeding it returns **504**. |
 | Fault isolation | — | Any unexpected exception in validation/detection becomes a controlled **500** (clear detail, no stack leak, no silent wrong answer); temp files are always cleaned up in `finally`. |
 
 The M5 **gate-first** property is preserved: the validation gate still runs
