@@ -289,6 +289,63 @@ def test_analyze_rejects_non_video_content_type() -> None:
     assert response.status_code == 400
 
 
+# --- M7 production hardening -------------------------------------------------
+
+
+def test_analyze_rejects_oversized_upload(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A tiny cap makes the size guard fire without generating a real large file.
+    import app.main as main
+
+    monkeypatch.setattr(main, "_max_upload_bytes", lambda: 8)
+    files = {"file": ("clip.mp4", io.BytesIO(b"way more than eight bytes"), "video/mp4")}
+    response = client.post("/analyze", files=files)
+    assert response.status_code == 413
+
+
+def test_analyze_times_out_slow_processing(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A near-zero budget + a gate that blocks → the request returns a clean 504
+    # rather than pinning the event loop on the CPU-bound path.
+    import time
+
+    import app.main as main
+    from app.validation.result import ValidationResult
+
+    def _slow_gate(*_a: object, **_k: object) -> tuple[ValidationResult, None]:
+        time.sleep(0.5)
+        return ValidationResult(), None
+
+    monkeypatch.setattr(main, "_max_analysis_seconds", lambda: 0.05)
+    monkeypatch.setattr(main, "validate_video", _slow_gate)
+    response = client.post("/analyze", files=_video())
+    assert response.status_code == 504
+
+
+def test_analyze_unexpected_fault_is_a_clean_500(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An unexpected error inside the gate must surface as a controlled 500 (no
+    # silent wrong-answer, no traceback leak), with the temp upload still cleaned.
+    import app.main as main
+
+    def _boom(*_a: object, **_k: object) -> tuple[object, None]:
+        raise ValueError("synthetic pipeline fault")
+
+    monkeypatch.setattr(main, "validate_video", _boom)
+    response = client.post("/analyze", files=_video())
+    assert response.status_code == 500
+
+
+def test_oversized_upload_leaves_no_temp_files(
+    temp_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The 413 path raises mid-drain; the ephemeral temp dir must still be removed.
+    import app.main as main
+
+    monkeypatch.setattr(main, "_max_upload_bytes", lambda: 8)
+    files = {"file": ("clip.mp4", io.BytesIO(b"too many bytes here"), "video/mp4")}
+    response = client.post("/analyze", files=files)
+    assert response.status_code == 413
+    assert list(temp_root.iterdir()) == []
+
+
 @pytest.fixture
 def temp_root() -> Iterator[Path]:
     """Point tempfile at an isolated dir so we can assert it ends up empty."""

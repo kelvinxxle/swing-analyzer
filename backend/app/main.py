@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypeVar
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,9 +23,29 @@ from app.analysis import (
 from app.detection import detect_flaws
 from app.validation import validate_video
 
+_T = TypeVar("_T")
+
 # Stream uploads to disk in modest chunks so a large video never sits fully in
 # memory. The bytes are discarded immediately after — nothing is persisted.
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB
+
+# Production guardrails (env-overridable, with safe code defaults). These bound
+# the work a single request can do so the CPU-bound pose+detection path can't be
+# made to run unbounded or buffer an unbounded upload.
+_DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # matches the 50MB the UI advertises
+_DEFAULT_MAX_ANALYSIS_SECONDS = 60.0
+
+
+def _max_upload_bytes() -> int:
+    """Largest upload we accept before returning 413 (env ``MAX_UPLOAD_BYTES``)."""
+    raw = os.getenv("MAX_UPLOAD_BYTES")
+    return int(raw) if raw else _DEFAULT_MAX_UPLOAD_BYTES
+
+
+def _max_analysis_seconds() -> float:
+    """Wall-clock budget for the CPU-bound gate+engine (env ``MAX_ANALYSIS_SECONDS``)."""
+    raw = os.getenv("MAX_ANALYSIS_SECONDS")
+    return float(raw) if raw else _DEFAULT_MAX_ANALYSIS_SECONDS
 
 app = FastAPI(
     title="Swing Analyzer API",
@@ -69,6 +91,12 @@ async def analyze(
     result. The upload is processed in an ephemeral temp file and discarded
     immediately — nothing is stored.
 
+    **M7 — production hardening.** The upload is size-capped (``413`` past
+    ``MAX_UPLOAD_BYTES``), the CPU-bound gate+engine run under a wall-clock budget
+    (``504`` past ``MAX_ANALYSIS_SECONDS``), and any unexpected fault surfaces as a
+    clean ``500`` rather than a silent wrong answer. None of these change the
+    ``AnalyzeResponse`` wire shape — they are transport-level errors.
+
     The ``scenario`` form field is a deliberate dev lever (form field only, never
     reachable via the user-controlled filename) for demoing the screens:
 
@@ -90,7 +118,7 @@ async def analyze(
     tmp_dir = Path(tempfile.mkdtemp(prefix="swing-analyzer-"))
     tmp_path = tmp_dir / "upload"
     try:
-        size = await _drain_to_path(file, tmp_path)
+        size = await _drain_to_path(file, tmp_path, _max_upload_bytes())
         if size == 0:
             raise HTTPException(status_code=400, detail="The uploaded file is empty.")
 
@@ -104,8 +132,10 @@ async def analyze(
         # The real gate ALWAYS runs for a real upload, before any success result,
         # so a bad video can never be analyzed or shown a canned success — not even
         # with scenario=clean/flaws. It is CPU-bound (OpenCV decode + MediaPipe),
-        # so offload it to a worker thread to keep the event loop responsive.
-        result, series = await run_in_threadpool(validate_video, tmp_path)
+        # so offload it to a worker thread (under a wall-clock budget) to keep the
+        # event loop responsive and the request bounded.
+        budget = _max_analysis_seconds()
+        result, series = await _run_bounded(validate_video, tmp_path, timeout=budget)
         if not result.passed:
             return AnalyzeResponse(
                 status=AnalysisStatus.REJECTED, flaws=[], reason=result.rejection
@@ -128,22 +158,54 @@ async def analyze(
                 detail="Pose extraction did not produce a series for a passing video.",
             )
 
-        status, flaws = await run_in_threadpool(detect_flaws, series)
+        status, flaws = await _run_bounded(detect_flaws, series, timeout=budget)
         return AnalyzeResponse(status=status, flaws=flaws)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         await file.close()
 
 
-async def _drain_to_path(file: UploadFile, dest: Path) -> int:
+async def _run_bounded(func: Callable[..., _T], *args: object, timeout: float) -> _T:
+    """Run a CPU-bound ``func`` in a worker thread under a wall-clock ``timeout``.
+
+    Offloading keeps the event loop responsive; the timeout bounds a single
+    request so a pathological clip can't pin a worker indefinitely. On timeout we
+    surface a clean ``504`` (the worker thread can't be force-killed, but the
+    request returns promptly). Any other failure becomes a controlled ``500`` —
+    we never let an unexpected fault fall through to a silent wrong answer.
+    """
+    try:
+        return await asyncio.wait_for(run_in_threadpool(func, *args), timeout=timeout)
+    except TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Analysis took too long. Try a shorter clip and re-upload.",
+        ) from None
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 — convert any fault into a clean 500
+        raise HTTPException(
+            status_code=500,
+            detail="Analysis failed unexpectedly. Please try again.",
+        ) from exc
+
+
+async def _drain_to_path(file: UploadFile, dest: Path, max_bytes: int) -> int:
     """Stream the upload to ``dest`` in chunks and return its byte size.
 
     Streaming keeps a large video off the heap; the caller owns the temp file's
     lifetime and removes it once analysis is done, so the service stays stateless.
+    Writing stops with a ``413`` the moment the upload exceeds ``max_bytes`` — we
+    never buffer an unbounded body to disk.
     """
     size = 0
     with dest.open("wb") as buffer:
         while chunk := await file.read(_CHUNK_SIZE):
             size += len(chunk)
+            if size > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"The uploaded file exceeds the {max_bytes // (1024 * 1024)}MB limit.",
+                )
             buffer.write(chunk)
     return size
