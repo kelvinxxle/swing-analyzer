@@ -13,4 +13,14 @@ describe("ReasonCard", () => {
     expect(screen.getByText(/no golfer detected/i)).toBeInTheDocument();
     expect(container.querySelector("svg")).not.toBeNull();
   });
+
+  it("resolves an icon for a new M5 reason code", () => {
+    const { container } = render(
+      <ReasonCard
+        reason={{ code: "too_short", label: "Reason 01", title: "Clip too short" }}
+      />,
+    );
+    expect(screen.getByText(/clip too short/i)).toBeInTheDocument();
+    expect(container.querySelector("svg")).not.toBeNull();
+  });
 });

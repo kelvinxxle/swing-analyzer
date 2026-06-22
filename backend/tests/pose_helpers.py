@@ -24,11 +24,13 @@ def make_synthetic_clip(
     fps: float,
     width: int = 64,
     height: int = 48,
+    background: int = 0,
 ) -> Path:
     """Write a short synthetic MP4 with a moving rectangle and return its path.
 
     The content is meaningless to pose estimation (no real human) — it exists to
-    exercise the decode → sample → structure path deterministically.
+    exercise the decode → sample → structure path deterministically. ``background``
+    sets the fill gray level (0–255), useful for brightness-sensitive checks.
     """
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(str(path), fourcc, fps, (width, height))
@@ -36,7 +38,7 @@ def make_synthetic_clip(
         raise RuntimeError("Could not open VideoWriter for synthetic clip")
     try:
         for i in range(frames):
-            frame = np.zeros((height, width, 3), dtype=np.uint8)
+            frame = np.full((height, width, 3), background, dtype=np.uint8)
             x = (i * 3) % max(width - 10, 1)
             cv2.rectangle(frame, (x, 10), (x + 8, 30), (255, 255, 255), -1)
             writer.write(frame)
