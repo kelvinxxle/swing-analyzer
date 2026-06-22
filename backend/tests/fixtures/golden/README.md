@@ -16,17 +16,19 @@ and asserts the result.
 So an empty bucket is a *documented skip*, never a silent gap.
 
 ## Buckets
-| Bucket | Expected | Seeded how |
-|---|---|---|
-| `good/` | `no_major_flaws` | real CC0/PD clips (record or source) |
-| `flaws/` | `analyzed`, the flaw within the top 3 | real clips (record — labeled DTL footage is scarce) |
-| `bad_input` (dark / too_short / low_resolution / no_golfer / unreadable) | `rejected` + reason | **generated**, no footage needed |
-| `bad/` (angle / framing) | `rejected` + reason | real footage (can't be synthesized — needs a real human pose) |
+| Bucket (manifest `bucket`) | Dir | Expected | Seeded how |
+|---|---|---|---|
+| `good` | `good/` | `no_major_flaws` | real CC0/PD clips (record or source) |
+| `flaw` | `flaws/` | `analyzed`, the flaw within the top 3 | real clips (record — labeled DTL footage is scarce) |
+| `bad_input` (dark / too_short / low_resolution / no_golfer / unreadable) | — | `rejected` + reason | **generated**, no footage needed |
+| `bad_input` (angle / framing) | `bad/` | `rejected` + reason | real footage (can't be synthesized — needs a real human pose) |
 
-`angle` and `framing` can't be generated synthetically (a clip with no real human
-rejects as `no_golfer`, not `angle`/`framing`), so they live as `file` entries and
-are skipped until real footage is added. The underlying checks are already covered
-by `tests/test_validation_checks.py` against constructed pose series.
+The angle/framing entries share the `bad_input` bucket with the generated cases
+but, unlike them, point at a committed `file` under `bad/` because they can't be
+generated synthetically (a clip with no real human rejects as `no_golfer`, not
+`angle`/`framing`). They live as `file` entries and are skipped until real footage
+is added. The underlying checks are already covered by
+`tests/test_validation_checks.py` against constructed pose series.
 
 ## Adding a real clip
 1. Trim it to ~2–3s, ≤~1MB, MP4. It **must** clear the M5 capture gate:

@@ -104,7 +104,16 @@ def test_golden_clip_matches_expected_output(clip: dict[str, Any], tmp_path: Pat
         assert status == AnalysisStatus.ANALYZED, (
             f"{clip['id']}: expected analyzed flaws, got '{status.value}'"
         )
-        reported = {_TITLE_TO_FLAW_ID[f.title]: f.priority for f in flaws}
+        reported: dict[str, int] = {}
+        for f in flaws:
+            flaw_id = _TITLE_TO_FLAW_ID.get(f.title)
+            if flaw_id is None:
+                pytest.fail(
+                    f"{clip['id']}: reported flaw title {f.title!r} is not in the "
+                    f"flaw catalog — update _TITLE_TO_FLAW_ID or the flaw copy so "
+                    f"the harness can map it back to a FlawId"
+                )
+            reported[flaw_id] = f.priority
         target = expect["flaw_in_top"]
         assert target in reported, (
             f"{clip['id']}: expected '{target}' among reported flaws {sorted(reported)}"
