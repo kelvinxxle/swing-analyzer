@@ -128,6 +128,25 @@ def test_golden_clip_matches_expected_output(clip: dict[str, Any], tmp_path: Pat
     pytest.fail(f"{clip['id']}: unknown bucket '{bucket}'")
 
 
+def _assert_provenance_wellformed(clip: dict[str, Any]) -> None:
+    """Optional provenance fields are backward-compatible: validate only if present.
+
+    A contributor can record where a locally-held clip came from (``source_url`` /
+    ``attribution`` / ``note``) and flag it ``local_only`` without committing the
+    media. These fields never gate the loader; this just stops a typo from
+    silently storing the wrong type.
+    """
+    if "local_only" in clip:
+        assert isinstance(clip["local_only"], bool), (
+            f"{clip['id']}: 'local_only' must be a bool"
+        )
+    for field in ("source_url", "attribution", "note"):
+        if field in clip:
+            assert clip[field] is None or isinstance(clip[field], str), (
+                f"{clip['id']}: '{field}' must be a string or null"
+            )
+
+
 def test_manifest_is_wellformed() -> None:
     """Guard the manifest itself so a typo can't silently weaken the suite."""
     assert CLIPS, "golden manifest has no clips"
@@ -155,6 +174,8 @@ def test_manifest_is_wellformed() -> None:
         elif bucket == "bad_input":
             assert expect["status"] == "rejected"
             assert expect.get("reason_code"), f"{clip['id']}: bad_input needs a reason_code"
+
+        _assert_provenance_wellformed(clip)
 
     # Every catalog flaw has at least one golden entry (filled or a documented skip).
     assert flaw_targets == _ALL_FLAW_IDS, (

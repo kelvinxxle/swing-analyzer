@@ -1,17 +1,31 @@
 # Golden-fixture credits & licensing
 
-Every video committed under `backend/tests/fixtures/golden/` must be listed here
-with its source, license, and attribution. **Strict policy:** only commit footage
-that is unambiguously **public-domain** or a **Creative Commons** license that
-permits redistribution. When a clip's license is unclear, copyrighted, or
+Every video **committed** under `backend/tests/fixtures/golden/` must be listed
+here with its source, license, and attribution. **Strict policy:** only commit
+footage that is unambiguously **public-domain** or a **Creative Commons** license
+that permits redistribution. When a clip's license is unclear, copyrighted, or
 ToS-restricted (e.g. YouTube), **do not commit it** — leave the bucket empty and
 let the golden loader skip it.
+
+## Local-only validation is the normal path
+
+Real clips do **not** need to be committed to validate detection. The fixture
+buckets (`good/`, `flaws/`, `bad/`) are **git-ignored**, and the
+[`ingest_fixture.py`](../backend/scripts/ingest_fixture.py) helper trims,
+normalizes, and gate-checks a clip you hold **locally** — see the
+[golden-fixture README](../backend/tests/fixtures/golden/README.md) for the full
+workflow. Because local clips are never redistributed, **any source is fine for
+personal validation**; the only hard rule is that **nothing copyrighted is ever
+committed** to this public repo (the git-ignore enforces it). This credits file
+therefore only governs the rare case where someone commits a clip under a
+redistribution-permitting license.
 
 ## Committed clips
 _None yet._ All real-footage buckets (`good/`, `flaws/`, and the `angle` /
 `framing` bad-input cases) are currently **documented skips** — the golden loader
-reports them as skipped so CI stays green until clips are added (see
-`backend/tests/fixtures/golden/README.md`).
+reports them as skipped so CI stays green until a clip is ingested locally (see
+the [golden-fixture README](../backend/tests/fixtures/golden/README.md)). Real
+clips are git-ignored, so CI always runs the generated-only set.
 
 | Clip file | Bucket | Source URL | License | Attribution |
 |---|---|---|---|---|

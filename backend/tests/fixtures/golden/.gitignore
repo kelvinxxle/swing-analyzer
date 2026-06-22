@@ -1,0 +1,29 @@
+# Real swing media is LOCAL-ONLY and must NEVER be committed to this public repo.
+#
+# Instructional down-the-line clips are almost always copyrighted; we use them
+# locally to validate detection (see README.md + ../../../../docs/fixtures-credits.md)
+# but never redistribute them. This file ignores video in the real-footage buckets
+# (good/, flaws/, bad/) while keeping the harness scaffolding — .gitkeep, README.md,
+# and manifest.json — tracked.
+
+# Video files in the real-footage buckets.
+good/*.mp4
+good/*.mov
+good/*.avi
+good/*.mkv
+good/*.webm
+flaws/*.mp4
+flaws/*.mov
+flaws/*.avi
+flaws/*.mkv
+flaws/*.webm
+bad/*.mp4
+bad/*.mov
+bad/*.avi
+bad/*.mkv
+bad/*.webm
+
+# Belt-and-suspenders: never let the per-bucket placeholder get ignored.
+!good/.gitkeep
+!flaws/.gitkeep
+!bad/.gitkeep
