@@ -10,13 +10,14 @@ from typing import Annotated
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 
 from app.analysis import (
     AnalysisStatus,
     AnalyzeResponse,
     Scenario,
     build_response,
-    resolve_demo_scenario,
+    resolve_success_scenario,
 )
 from app.validation import validate_video
 
@@ -59,16 +60,18 @@ async def analyze(
 ) -> AnalyzeResponse:
     """Analyze one swing video and return the top 2–3 flaws (or a rejection).
 
-    **M5 — input validation is real; flaw detection is still mock.** A validation
-    gate runs *before* analysis: a video that fails the capture guidelines returns
-    ``{ status: "rejected", reason }`` with a specific reason (PRD bad-input rule).
-    A video that passes falls through to the mock flaw result until M6 lands real
-    detection. The upload is processed in an ephemeral temp file and discarded
-    immediately — nothing is stored (per the PRD no-persistence non-goal).
+    **M5 — input validation is real; flaw detection is still mock.** The real
+    validation gate runs *before* any result is chosen, so a video that fails the
+    capture guidelines always returns ``{ status: "rejected", reason }`` with a
+    specific reason (PRD bad-input rule) and can never be reported as good. Only a
+    video that *passes* the gate continues, and there a demo override may choose
+    *which success screen* to show — it can never force success on a failing
+    video. Flaw detection stays mock until M6. The upload is processed in an
+    ephemeral temp file and discarded immediately — nothing is stored.
 
-    Demo paths are preserved: an explicit ``scenario`` form field or a recognized
-    filename keyword forces a mock outcome, so all three screens stay demoable on
-    the deployed URLs. Any other upload runs the real validation gate.
+    ``scenario=rejected`` is a deliberate dev lever (a form field, never reachable
+    via the user-controlled filename) that shows the mock rejection screen for
+    demos; it forces a *failure*, so it cannot mask a bad video as good.
     """
     if file.content_type and not file.content_type.startswith("video/"):
         raise HTTPException(
@@ -83,19 +86,23 @@ async def analyze(
         if size == 0:
             raise HTTPException(status_code=400, detail="The uploaded file is empty.")
 
-        # Demo override wins so the deployed URLs can still show every screen.
-        demo = resolve_demo_scenario(file.filename, scenario)
-        if demo is not None:
-            return build_response(demo)
+        # Deliberate dev lever (form field only): show the rejection screen. Safe —
+        # it forces a failure, so no good video is ever masked as bad-input-free.
+        if scenario is Scenario.REJECTED:
+            return build_response(Scenario.REJECTED)
 
-        # Real M5 gate: reject bad input with a specific reason; a passing video
-        # continues to the mock analysis (real detection lands in M6).
-        result, _series = validate_video(tmp_path)
+        # The real gate ALWAYS runs for real uploads, before any success screen is
+        # chosen, so a bad video can never be reported as good — not even with a
+        # CLEAN/FLAWS-hinted filename. It is CPU-bound (OpenCV decode + MediaPipe),
+        # so offload it to a worker thread to keep the event loop responsive.
+        result, _series = await run_in_threadpool(validate_video, tmp_path)
         if not result.passed:
             return AnalyzeResponse(
                 status=AnalysisStatus.REJECTED, flaws=[], reason=result.rejection
             )
-        return build_response(Scenario.FLAWS)
+
+        # Passed → the demo override only picks which success screen to show.
+        return build_response(resolve_success_scenario(file.filename, scenario))
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         await file.close()

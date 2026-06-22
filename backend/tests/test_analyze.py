@@ -28,9 +28,30 @@ def _clip_upload(
     return {"file": (name, io.BytesIO(path.read_bytes()), "video/mp4")}
 
 
-def test_analyze_happy_path_returns_flaws() -> None:
-    # The default no-hint path now runs the real gate, so force the flaws demo.
-    response = client.post("/analyze", files=_video(), data={"scenario": "flaws"})
+@pytest.fixture
+def passing_gate() -> Iterator[None]:
+    """Stub the gate to 'passed' so success-screen selection can be tested.
+
+    A passing real video is impossible to synthesize hermetically (a clip with no
+    human is correctly rejected as ``no_golfer``), so success-path tests stub the
+    gate and assert only which success screen the endpoint chooses.
+    """
+    import app.main as main
+    from app.validation.result import ValidationResult
+
+    def _passed(*_args: object, **_kwargs: object) -> tuple[ValidationResult, None]:
+        return ValidationResult(), None
+
+    original = main.validate_video
+    main.validate_video = _passed  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        main.validate_video = original  # type: ignore[assignment]
+
+
+def test_analyze_passing_video_returns_flaws(passing_gate: None) -> None:
+    response = client.post("/analyze", files=_video())
     assert response.status_code == 200
 
     body = response.json()
@@ -42,7 +63,8 @@ def test_analyze_happy_path_returns_flaws() -> None:
         assert flaw["title"].strip()
 
 
-def test_analyze_clean_scenario_no_major_flaws() -> None:
+def test_analyze_clean_scenario_picks_no_major_flaws(passing_gate: None) -> None:
+    # The success override only chooses a screen for a video that already passed.
     response = client.post("/analyze", files=_video(), data={"scenario": "clean"})
     assert response.status_code == 200
 
@@ -52,44 +74,62 @@ def test_analyze_clean_scenario_no_major_flaws() -> None:
     assert body["reason"] is None
 
 
-def test_analyze_rejected_scenario_returns_reason() -> None:
-    response = client.post("/analyze", files=_video(), data={"scenario": "rejected"})
-    assert response.status_code == 200
-
-    body = response.json()
-    assert body["status"] == "rejected"
-    assert body["flaws"] == []
-    assert body["reason"]["details"]
-    codes = {detail["code"] for detail in body["reason"]["details"]}
-    assert codes <= {"angle", "lighting", "no_golfer"}
-
-
-def test_analyze_infers_rejection_from_filename() -> None:
-    files = {"file": ("bad-angle.mp4", io.BytesIO(b"data"), "video/mp4")}
-    response = client.post("/analyze", files=files)
-    assert response.status_code == 200
-    assert response.json()["status"] == "rejected"
-
-
-def test_analyze_infers_clean_from_filename() -> None:
+def test_analyze_clean_filename_picks_no_major_flaws(passing_gate: None) -> None:
     files = {"file": ("good-swing.mp4", io.BytesIO(b"data"), "video/mp4")}
     response = client.post("/analyze", files=files)
     assert response.status_code == 200
     assert response.json()["status"] == "no_major_flaws"
 
 
-def test_analyze_infers_flaws_from_filename() -> None:
-    files = {"file": ("flaws-demo.mp4", io.BytesIO(b"data"), "video/mp4")}
-    response = client.post("/analyze", files=files)
-    assert response.status_code == 200
-    assert response.json()["status"] == "analyzed"
-
-
-def test_analyze_explicit_scenario_overrides_filename() -> None:
-    files = {"file": ("bad-angle.mp4", io.BytesIO(b"data"), "video/mp4")}
+def test_analyze_scenario_flaws_overrides_clean_filename(passing_gate: None) -> None:
+    # An explicit success scenario wins over a filename hint — but only among
+    # success screens, for a video that passed validation.
+    files = {"file": ("good-swing.mp4", io.BytesIO(b"data"), "video/mp4")}
     response = client.post("/analyze", files=files, data={"scenario": "flaws"})
     assert response.status_code == 200
     assert response.json()["status"] == "analyzed"
+
+
+def test_analyze_rejected_scenario_is_a_single_reason_dev_lever() -> None:
+    # The dev lever forces the rejection screen with one specific reason,
+    # consistent with the real gate (no longer the legacy 3-detail payload).
+    response = client.post("/analyze", files=_video(), data={"scenario": "rejected"})
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["status"] == "rejected"
+    assert body["flaws"] == []
+    assert len(body["reason"]["details"]) == 1
+    assert body["reason"]["details"][0]["code"] in {
+        "angle",
+        "lighting",
+        "no_golfer",
+        "unreadable",
+        "low_resolution",
+        "too_short",
+        "framing",
+    }
+
+
+def test_bad_clip_with_clean_filename_is_still_rejected() -> None:
+    # Regression for the P1 fix: a CLEAN-hinted filename must NOT mask a bad clip.
+    # The real gate runs first, so an undecodable upload named good-swing.mp4 is
+    # rejected — a user-controlled filename can never force a success result.
+    files = {"file": ("good-swing.mp4", io.BytesIO(b"\x00\x01nope"), "video/mp4")}
+    response = client.post("/analyze", files=files)
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["status"] == "rejected"
+    assert _reason_code(body) == "unreadable"
+
+
+def test_flaws_filename_cannot_mask_a_bad_clip() -> None:
+    # Same regression from the FLAWS-hint side.
+    files = {"file": ("sample-flaws.mp4", io.BytesIO(b"\x00\x01nope"), "video/mp4")}
+    response = client.post("/analyze", files=files)
+    assert response.status_code == 200
+    assert response.json()["status"] == "rejected"
 
 
 # --- Real validation gate (no demo hint) ------------------------------------
@@ -182,7 +222,9 @@ def temp_root() -> Iterator[Path]:
 
 
 def test_analyze_discards_uploaded_file(temp_root: Path) -> None:
-    response = client.post("/analyze", files=_video(), data={"scenario": "flaws"})
+    # Use the dev-lever rejection so the test doesn't run the slow CV gate; the
+    # temp file is drained either way and must be cleaned up.
+    response = client.post("/analyze", files=_video(), data={"scenario": "rejected"})
     assert response.status_code == 200
     # Ephemeral handling: no temp artifacts left behind after the request.
     assert list(temp_root.iterdir()) == []

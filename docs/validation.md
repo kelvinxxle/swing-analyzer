@@ -92,29 +92,35 @@ rough and will be **tuned against real clips in M7** (golden fixtures).
 
 ## How `/analyze` integrates the gate (and the demo paths)
 
-`/analyze` keeps the existing **demo overrides** so all three screens stay
-demoable on the deployed URLs:
+**The real validation gate always runs first for a real upload, before any
+result is chosen.** This is the core of the PRD bad-input rule: a video that
+fails the capture guidelines can never be reported as good — not even with a
+"good"-named filename. The order is:
 
-- An explicit `scenario` form field (`flaws` / `clean` / `rejected`) **wins** and
-  returns the mock result for that screen.
-- Otherwise a recognized **filename keyword** forces a mock path:
-  - reject hints (`reject`, `bad`, `dark`, `wrong`, `angle`, `blurry`) → mock rejection
-  - clean hints (`clean`, `good`, `perfect`, `pro`, `ideal`) → mock "no major flaws"
-  - flaws hints (`flaws`, `demo`, `sample`) → mock flaws
-- **Any other upload runs the real gate.** A bad clip returns a real specific
-  reason; a clip that passes falls through to the **mock flaws** result (real
-  detection lands in M6).
+1. Request guards (missing/empty file, non-`video/*` content type) → HTTP 400.
+2. **Dev lever (form field only):** `scenario=rejected` short-circuits to the
+   mock rejection screen. It forces a *failure*, so it can't mask a bad video,
+   and it is **not reachable via the user-controlled filename**.
+3. **Real gate:** `validate_video(tmp_path)` runs (offloaded to a worker thread
+   via `run_in_threadpool`, since it's CPU-bound OpenCV + MediaPipe). If it
+   fails → return the specific rejection (→ Error screen). This cannot be
+   bypassed by filename.
+4. **Only after the video passes**, a demo override chooses *which success
+   screen* to show — never whether the video succeeds:
+   - `scenario=clean`, or a clean-hinted filename (`clean`, `good`, `perfect`,
+     `pro`, `ideal`) → mock "no major flaws".
+   - otherwise → the mock **flaws** result (real detection lands in M6).
 
-So a rejection is now reachable two ways: upload a genuinely bad clip with a
-neutral name (real gate), or use a `reject`-hinted filename / `scenario=rejected`
-(mock). On the live URLs, a real, well-shot down-the-line swing passes the gate
-and demos as flaws.
+Because the gate runs first, **you can no longer fake a rejection by filename on
+a good clip.** Demoing a rejection now requires either uploading a genuinely bad
+clip (dark / wrong-angle / no-golfer — real validation catches it) or using the
+explicit `scenario=rejected` dev lever. The success override only ever picks
+among *success* presentations for a video that genuinely passed.
 
-Request-level guards are unchanged: a missing/empty file or a blatantly
-non-`video/*` content type still returns HTTP 400 (a malformed *request*),
-whereas a file that claims `video/*` but won't decode is bad *content* and
-returns the `unreadable` rejection on the Error screen. The upload is processed in
-an ephemeral temp file and discarded immediately — the service stays stateless.
+A file that claims `video/*` but won't decode is bad *content* (not a malformed
+request), so it returns the `unreadable` rejection on the Error screen. The
+upload is processed in an ephemeral temp file and discarded immediately — the
+service stays stateless.
 
 ## Tests
 
@@ -125,8 +131,11 @@ an ephemeral temp file and discarded immediately — the service stays stateless
   and the decode/pose rejections (injected fake estimator).
 - `backend/tests/test_validation_reasons.py` — every code yields a well-formed
   reason and the code set stays in lockstep with the frontend.
-- `backend/tests/test_analyze.py` — the wired endpoint: demo overrides, and the
-  real gate rejecting `unreadable` / `low_resolution` / `lighting` / `too_short`
+- `backend/tests/test_analyze.py` — the wired endpoint: the gate runs **before**
+  the success override (a bad clip with a `good`/`sample`-hinted filename is still
+  rejected — the key regression), the success override only picks among success
+  screens for a passing video, the `scenario=rejected` dev lever, and the real
+  gate rejecting `unreadable` / `low_resolution` / `lighting` / `too_short`
   (cheap) and `no_golfer` (pose, via real MediaPipe on a human-free synthetic
   clip), plus the 400 guards and ephemeral cleanup.
 - `frontend/src/lib/analysis.test.ts`, `ReasonCard.test.tsx`, `e2e/smoke.spec.ts`

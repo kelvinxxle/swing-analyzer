@@ -121,40 +121,37 @@ _MOCK_REJECTION = RejectionReason(
         "The video provided does not meet the guidelines required for auto-detection. "
         "Our system cannot accurately diagnose your swing."
     ),
+    # Single specific reason, consistent with the real M5 gate (first-failure-wins,
+    # one "Reason 01" detail). This is the deliberate dev lever used to demo the
+    # rejection screen; genuine rejections come from the validation gate.
     details=[
         RejectionDetail(code="angle", label="Reason 01", title="Angle too wide"),
-        RejectionDetail(code="lighting", label="Reason 02", title="Low lighting"),
-        RejectionDetail(code="no_golfer", label="Reason 03", title="No golfer detected"),
     ],
 )
 
-# Filename keywords → scenario, for demoable inference when no explicit scenario.
-_REJECT_HINTS = ("reject", "bad", "dark", "wrong", "angle", "blurry")
+# Filename keywords that pick which *success* screen to show — only ever applied
+# to a video that already passed validation (see ``resolve_success_scenario``).
 _CLEAN_HINTS = ("clean", "good", "perfect", "pro", "ideal")
-_FLAWS_HINTS = ("flaws", "demo", "sample")
 
 
-def resolve_demo_scenario(
+def resolve_success_scenario(
     filename: str | None, scenario: Scenario | None
-) -> Scenario | None:
-    """Resolve the **demo override**, or ``None`` to run real validation.
+) -> Scenario:
+    """Pick which **success** screen to show for a video that passed validation.
 
-    An explicit ``scenario`` form field wins; otherwise a recognized filename
-    keyword forces a mock path so all three outcomes stay demoable on the
-    deployed URLs. When nothing matches, the caller runs the real M5 validation
-    gate instead of inferring a mock result.
+    The demo override may only choose among *success* presentations — it can never
+    turn a failing video into a success, because the real gate runs first and
+    rejects bad input before this is consulted. An explicit ``scenario`` form
+    field wins; otherwise a recognized filename keyword selects "no major flaws";
+    the default is the mock flaws result (real detection lands in M6).
     """
-    if scenario is not None:
+    if scenario is Scenario.CLEAN or scenario is Scenario.FLAWS:
         return scenario
 
     name = (filename or "").lower()
-    if any(hint in name for hint in _REJECT_HINTS):
-        return Scenario.REJECTED
     if any(hint in name for hint in _CLEAN_HINTS):
         return Scenario.CLEAN
-    if any(hint in name for hint in _FLAWS_HINTS):
-        return Scenario.FLAWS
-    return None
+    return Scenario.FLAWS
 
 
 def build_response(scenario: Scenario) -> AnalyzeResponse:
