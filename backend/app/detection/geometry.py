@@ -5,9 +5,12 @@ These operate only on the M4 :class:`~app.pose.schema.PoseFrame` /
 contain **no** MediaPipe, OpenCV, or rule logic — just the small kit of
 measurements the rules compose (midpoints, angles, distances, a stature scale).
 
-Coordinate reminder (matching MediaPipe Pose): ``x`` / ``y`` are normalized to
-``[0, 1]``; ``y`` grows **downward**, so a smaller ``y`` is higher in the frame.
-``z`` is an unreliable depth hint and is deliberately never used here — every
+Coordinate reminder (matching MediaPipe Pose): a :class:`Landmark`'s ``x`` / ``y``
+arrive normalized to ``[0, 1]`` (``x`` by frame width, ``y`` by height), with ``y``
+growing **downward**. Because that per-axis normalization distorts non-square
+frames, the engine first maps each frame to square **pixel** space via
+:func:`to_pixel_frame`; the helpers below then operate on those same-unit points.
+``z`` is an unreliable depth hint and is deliberately never used — every
 measurement lives on the reliable ``x`` / ``y`` axes.
 """
 
@@ -15,10 +18,38 @@ from __future__ import annotations
 
 from math import acos, atan2, degrees, hypot
 
-from app.pose.schema import LandmarkName, PoseFrame
+from app.pose.schema import Landmark, LandmarkName, PoseFrame
 
 # A normalized 2D image point.
 Point = tuple[float, float]
+
+
+def to_pixel_frame(frame: PoseFrame, width: int, height: int) -> PoseFrame:
+    """Return a copy of ``frame`` with landmarks in **pixel** coordinates.
+
+    ``PoseSeries`` normalizes ``x`` by the frame *width* and ``y`` by the *height*
+    independently, so on a non-square clip (e.g. a portrait phone video) the two
+    axes are not in the same unit. The rules mix ``x`` and ``y`` (distances, trunk
+    and knee angles, hip / hand offsets divided by a vertical stature span), so
+    they must operate in a common, square unit. Multiplying ``x`` by ``width`` and
+    ``y`` by ``height`` maps both axes to pixels (square pixels), which is that
+    common unit; stature-normalization on top keeps measures zoom-invariant.
+    Without this, a flaw would fire or miss based on the video's aspect ratio
+    rather than the swing.
+    """
+    landmarks = frame.landmarks
+    if landmarks is None:
+        return frame
+    scaled = {
+        name: Landmark(
+            x=landmark.x * width,
+            y=landmark.y * height,
+            z=landmark.z,
+            visibility=landmark.visibility,
+        )
+        for name, landmark in landmarks.items()
+    }
+    return frame.model_copy(update={"landmarks": scaled})
 
 
 def clamp(value: float, low: float, high: float) -> float:

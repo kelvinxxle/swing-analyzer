@@ -107,7 +107,12 @@ def _mean_point(
 
 def build_context(series: PoseSeries) -> SwingContext | None:
     """Assemble the shared :class:`SwingContext`, or ``None`` if not analyzable."""
-    detected = series.detected_frames
+    # Map every frame to square pixel space first, so all downstream geometry is
+    # aspect-correct on non-square (e.g. portrait) clips (see geometry.to_pixel_frame).
+    detected = [
+        geometry.to_pixel_frame(frame, series.width, series.height)
+        for frame in series.detected_frames
+    ]
     phases = detect_phases(detected)
     if phases is None:
         return None

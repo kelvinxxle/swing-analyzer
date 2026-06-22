@@ -97,9 +97,12 @@ def test_analyze_real_engine_reports_no_major_flaws(
     assert body["reason"] is None
 
 
-def test_analyze_clean_scenario_is_canned_no_major_flaws() -> None:
-    # The demo override short-circuits to a canned success screen (no gate, no
-    # engine) so the no-major-flaws screen stays demoable on the live URLs.
+def test_analyze_clean_scenario_is_canned_no_major_flaws(
+    stub_gate: Callable[[PoseSeries], None],
+) -> None:
+    # The CLEAN demo override returns a canned success screen, but ONLY after the
+    # real gate passes (here stubbed to passing) — it never bypasses validation.
+    stub_gate(H.make_swing())
     response = client.post("/analyze", files=_video(), data={"scenario": "clean"})
     assert response.status_code == 200
 
@@ -109,16 +112,62 @@ def test_analyze_clean_scenario_is_canned_no_major_flaws() -> None:
     assert body["reason"] is None
 
 
-def test_analyze_flaws_scenario_is_canned_analyzed() -> None:
-    # The flaws demo override returns the canned analyzed screen regardless of
-    # filename — a dev lever, never real detection.
-    files = {"file": ("good-swing.mp4", io.BytesIO(b"data"), "video/mp4")}
-    response = client.post("/analyze", files=files, data={"scenario": "flaws"})
+def test_analyze_flaws_scenario_is_canned_analyzed(
+    stub_gate: Callable[[PoseSeries], None],
+) -> None:
+    # The FLAWS demo override returns the canned analyzed screen — also only after
+    # the gate passes (stubbed). It's a dev lever, never real detection.
+    stub_gate(H.make_swing())
+    response = client.post("/analyze", files=_video(), data={"scenario": "flaws"})
     assert response.status_code == 200
 
     body = response.json()
     assert body["status"] == "analyzed"
     assert 2 <= len(body["flaws"]) <= 3
+
+
+def test_clean_scenario_cannot_mask_a_bad_clip() -> None:
+    # P1 regression: scenario=clean must NOT bypass the gate. An undecodable
+    # upload is rejected even with the CLEAN demo lever set.
+    files = {"file": ("clip.mp4", io.BytesIO(b"\x00\x01nope"), "video/mp4")}
+    response = client.post("/analyze", files=files, data={"scenario": "clean"})
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["status"] == "rejected"
+    assert _reason_code(body) == "unreadable"
+
+
+def test_flaws_scenario_cannot_mask_a_bad_clip() -> None:
+    # Same P1 regression from the FLAWS side: the demo lever can never force a
+    # success result on a video that fails validation.
+    files = {"file": ("clip.mp4", io.BytesIO(b"\x00\x01nope"), "video/mp4")}
+    response = client.post("/analyze", files=files, data={"scenario": "flaws"})
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["status"] == "rejected"
+    assert _reason_code(body) == "unreadable"
+
+
+def test_analyze_passing_gate_without_series_fails_loud() -> None:
+    # Defensive P? fix: if the gate reports 'passed' but hands back no series
+    # (an internal pipeline fault), the endpoint must surface a 500 rather than
+    # silently reporting a clean swing.
+    import app.main as main
+    from app.validation.result import ValidationResult
+
+    original = main.validate_video
+
+    def _passed_no_series(*_a: object, **_k: object) -> tuple[ValidationResult, None]:
+        return ValidationResult(), None
+
+    main.validate_video = _passed_no_series  # type: ignore[assignment]
+    try:
+        response = client.post("/analyze", files=_video())
+    finally:
+        main.validate_video = original  # type: ignore[assignment]
+    assert response.status_code == 500
 
 
 def test_analyze_rejected_scenario_is_a_single_reason_dev_lever() -> None:

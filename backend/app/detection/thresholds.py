@@ -36,6 +36,12 @@ ADDRESS_FRACTION = 0.15
 # the over-the-top move reveals itself before the hands recover into the slot.
 EARLY_DOWNSWING_FRACTION = 0.4
 
+# How far the hands must descend back from a backswing high point — as a fraction
+# of the climb from that peak toward the address baseline — before it is locked in
+# as the top. This keeps a high follow-through / finish (where the hands are also
+# high) from being mistaken for the top of the backswing.
+TOP_PEAK_DROP_FRACTION = 0.5
+
 # Hard cap on reported flaws — the PRD's "top 2–3". We never pad below it, but
 # also never exceed it; only the highest-scoring flaws surface.
 MAX_REPORTED_FLAWS = 3

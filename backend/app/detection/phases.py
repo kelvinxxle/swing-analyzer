@@ -6,10 +6,12 @@ to key off, phases are derived from the **hands' height**:
 
 * **address** — a short window of settled frames at the start, the baseline every
   rule compares against;
-* **top of backswing** — the frame where the hands are highest (minimum wrist
-  ``y``);
-* **impact** — the first post-top frame where the hands return to ~address height
-  on the way down.
+* **top of backswing** — the **first** hand-height peak (highest hands = minimum
+  wrist ``y``) after address; the search locks the peak once the hands descend
+  back toward address height, so a high follow-through / finish can't be mistaken
+  for the top;
+* **impact** — the post-top frame whose hands come **closest** to the address
+  height on the way down (the nearest return to baseline, not merely the first).
 
 This is deliberately a heuristic. It is robust enough for the synthetic fixtures
 and a first pass on real clips, and is explicitly a candidate for hardening in
@@ -66,13 +68,14 @@ def detect_phases(detected: list[PoseFrame]) -> SwingPhases | None:
     if address_baseline is None:
         return None
 
-    # Top of backswing = highest hands (smallest y). Constrain to after the
-    # address window so a high-hands start can't masquerade as the top.
-    top = _argmin_after(wrist_ys, start=address_end)
+    # Top of backswing = the FIRST hand-height peak after address. Locking the
+    # first peak (rather than the global minimum) stops a high follow-through /
+    # finish from masquerading as the top and dragging impact to the end.
+    top = _first_peak_after(wrist_ys, start=address_end, baseline=address_baseline)
     if top is None:
         top = max(address_end, n // 2)
 
-    # Impact = first post-top frame whose hands return nearest to address height.
+    # Impact = the post-top frame whose hands come closest to address height.
     impact = _return_to_baseline(wrist_ys, after=top, baseline=address_baseline)
 
     return SwingPhases(address_start=0, address_end=address_end, top=top, impact=impact)
@@ -92,22 +95,38 @@ def _first(values: list[float | None]) -> float | None:
     return None
 
 
-def _argmin_after(values: list[float | None], start: int) -> int | None:
-    """Index of the minimum value at or after ``start`` (skipping ``None``)."""
+def _first_peak_after(
+    values: list[float | None], start: int, baseline: float
+) -> int | None:
+    """Index of the **first** hand-height peak (minimum ``y``) at or after ``start``.
+
+    Tracks the running highest point (smallest ``y``); once the hands descend back
+    a meaningful fraction (``TOP_PEAK_DROP_FRACTION``) of the way from that peak
+    toward the ``baseline`` address height, the peak is locked in as the top. This
+    keeps a later, higher follow-through / finish from being selected as the top of
+    the backswing. Skips ``None`` (unreadable) frames.
+    """
     best_idx: int | None = None
     best_val = float("inf")
     for i in range(start, len(values)):
         v = values[i]
-        if v is not None and v < best_val:
+        if v is None:
+            continue
+        if v < best_val:
             best_val = v
             best_idx = i
+        elif best_idx is not None and baseline > best_val:
+            drop = (v - best_val) / (baseline - best_val)
+            if drop >= T.TOP_PEAK_DROP_FRACTION:
+                break
     return best_idx
 
 
 def _return_to_baseline(values: list[float | None], after: int, baseline: float) -> int:
-    """First frame after ``after`` whose value is closest to ``baseline``.
+    """Post-``after`` frame whose value is **closest** to ``baseline``.
 
-    Models the hands dropping back to address height at impact. Falls back to the
+    Models the hands coming back nearest to address height at impact (the nearest
+    return to baseline overall, not merely the first crossing). Falls back to the
     last frame when nothing after the top is usable.
     """
     best_idx = len(values) - 1

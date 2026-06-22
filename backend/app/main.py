@@ -60,19 +60,26 @@ async def analyze(
 ) -> AnalyzeResponse:
     """Analyze one swing video and return the top 2–3 flaws (or a rejection).
 
-    **M6 — real flaw detection.** The flow for a real upload is: the M5 validation
-    gate runs first (a video that fails the capture guidelines always returns
-    ``{ status: "rejected", reason }`` and can never be reported as good); on pass,
-    the **real M6 engine** runs over the pose ``series`` the gate already extracted
-    (no second pose pass) and returns the top 2–3 catalog flaws, or a valid
-    ``no_major_flaws`` result. The upload is processed in an ephemeral temp file and
-    discarded immediately — nothing is stored.
+    **M6 — real flaw detection, with the M5 gate always in front.** The validation
+    gate runs **before** any success result, so a video that fails the capture
+    guidelines always returns ``{ status: "rejected", reason }`` and can never be
+    reported as good — *regardless of the ``scenario`` field*. On pass, the real M6
+    engine runs over the pose ``series`` the gate already extracted (no second pose
+    pass) and returns the top 2–3 catalog flaws, or a valid ``no_major_flaws``
+    result. The upload is processed in an ephemeral temp file and discarded
+    immediately — nothing is stored.
 
-    The ``scenario`` form field is a deliberate dev lever (never reachable via the
-    user-controlled filename) that returns a *canned* screen for demos:
-    ``rejected`` forces the rejection screen, ``flaws`` / ``clean`` force the two
-    success screens. The levers only short-circuit demos; a normal upload always
-    runs the real gate and the real engine.
+    The ``scenario`` form field is a deliberate dev lever (form field only, never
+    reachable via the user-controlled filename) for demoing the screens:
+
+    * ``rejected`` short-circuits to a canned rejection *before* the gate — it
+      forces a *failure*, so it can never mask a bad video as good;
+    * ``clean`` / ``flaws`` only take effect **after the real gate passes**: they
+      pick which canned success screen to show. A bad video under
+      ``scenario=clean`` / ``flaws`` is still rejected by the gate.
+
+    A normal upload (no ``scenario``) always runs the real gate and then the real
+    engine.
     """
     if file.content_type and not file.content_type.startswith("video/"):
         raise HTTPException(
@@ -87,29 +94,39 @@ async def analyze(
         if size == 0:
             raise HTTPException(status_code=400, detail="The uploaded file is empty.")
 
-        # Deliberate dev lever (form field only): show a canned success or
-        # rejection screen for demos. ``rejected`` forces a failure, so it can
-        # never mask a bad video as good; ``flaws`` / ``clean`` only short-circuit
-        # the success screens (the real gate still runs for a real upload below).
-        if scenario is not None:
-            return build_response(scenario)
+        # Dev lever (form field only): the REJECTED scenario may short-circuit
+        # before the gate — it forces a failure, so it can never mask a bad video
+        # as good. CLEAN / FLAWS must NOT bypass validation, so they are handled
+        # only after the gate passes (below).
+        if scenario is Scenario.REJECTED:
+            return build_response(Scenario.REJECTED)
 
-        # The real gate ALWAYS runs for real uploads, before any flaw detection,
-        # so a bad video can never be analyzed. It is CPU-bound (OpenCV decode +
-        # MediaPipe), so offload it to a worker thread to keep the loop responsive.
+        # The real gate ALWAYS runs for a real upload, before any success result,
+        # so a bad video can never be analyzed or shown a canned success — not even
+        # with scenario=clean/flaws. It is CPU-bound (OpenCV decode + MediaPipe),
+        # so offload it to a worker thread to keep the event loop responsive.
         result, series = await run_in_threadpool(validate_video, tmp_path)
         if not result.passed:
             return AnalyzeResponse(
                 status=AnalysisStatus.REJECTED, flaws=[], reason=result.rejection
             )
 
-        # Passed → run the real M6 engine over the series the gate already
+        # Passed → the CLEAN / FLAWS dev levers pick which canned success screen to
+        # show (only ever reachable for a video that genuinely passed the gate).
+        if scenario is not None:
+            return build_response(scenario)
+
+        # No scenario → run the real M6 engine over the series the gate already
         # extracted (no second pose pass). Detection is cheap (it works on the
         # in-memory series), but offload it too so the event loop never blocks.
         if series is None:
-            # Defensive: the gate passed without a series (should not happen, as
-            # passing requires the pose pass to have run). Nothing to analyze.
-            return AnalyzeResponse(status=AnalysisStatus.NO_MAJOR_FLAWS, flaws=[])
+            # The gate passed but produced no series — an internal pipeline fault
+            # (passing requires the pose pass to have run). Fail loud rather than
+            # silently reporting a clean swing.
+            raise HTTPException(
+                status_code=500,
+                detail="Pose extraction did not produce a series for a passing video.",
+            )
 
         status, flaws = await run_in_threadpool(detect_flaws, series)
         return AnalyzeResponse(status=status, flaws=flaws)

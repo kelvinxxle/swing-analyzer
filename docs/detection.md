@@ -37,8 +37,13 @@ flaws are **deliberately excluded** (documented in `rules.py`):
 
 ## The closed catalog
 
-Each rule uses a distinct primary measurement, landmark group, and phase, and is
-normalized by a **stature scale** (address nose→ankle vertical span) so it is
+Each rule uses a distinct primary measurement, landmark group, and phase. Before
+any math, the engine maps each frame to square **pixel space** (`x × width`,
+`y × height`): `PoseSeries` normalizes `x` by frame width and `y` by height
+independently, so on a non-square clip (e.g. portrait phone video) the axes are in
+different units — geometry that mixes `x` and `y` would otherwise fire or miss
+based on the video's aspect ratio. On top of that, every displacement is
+normalized by a **stature scale** (address nose→ankle vertical span) so it is also
 zoom- and body-size-invariant. Copy lives in
 [`catalog.py`](../backend/app/detection/catalog.py); geometry in
 [`rules.py`](../backend/app/detection/rules.py).
@@ -77,23 +82,32 @@ fixtures), which can retune without touching rule code.
 
 [`phases.py`](../backend/app/detection/phases.py) derives, from the detected-frame
 series: an **address baseline** (first ~15% of detected frames), **top of
-backswing** (highest hands = min wrist y), and **impact** (first post-top frame
-where the hands return near address height). It is a heuristic that degrades
-gracefully on short series and that M7 will harden.
+backswing** (the **first** hand-height peak after address — locked once the hands
+descend halfway back toward baseline, so a high follow-through finish can't be
+mistaken for the top), and **impact** (the post-top frame whose hand height is
+**closest to** the address baseline). It is a heuristic that degrades gracefully on
+short series and that M7 will harden.
 
 ## `/analyze` integration & the `scenario` lever
 
 `backend/app/main.py` order:
 
 1. Request guards (400 for missing/empty/non-video).
-2. **`scenario` demo override (form field only)** — short-circuits *before* the
-   gate to a **canned screen**: `flaws` → fixed analyzed result, `clean` → fixed
-   no-major-flaws, `rejected` → fixed rejection. Dev/demo levers only, never set
-   by a normal upload, never reachable via filename.
-3. **Real gate** — `validate_video` (in a threadpool); reject with reason if it
-   fails. Cannot be bypassed.
-4. **Real engine** — `detect_flaws` runs (in a threadpool) over the returned
-   series and produces the real flaws or the zero result.
+2. **`scenario=rejected` only** — short-circuits *before* the gate to a canned
+   rejection. This lever can only force a *failure*, so it can never mask a bad
+   video. Form-field/dev lever, never set by a normal upload.
+3. **Real gate** — `validate_video` (in a threadpool) **always runs** for a normal
+   upload and for `scenario=clean`/`flaws`. If it fails, the request is rejected
+   with the real reason; the scenario lever cannot override a failed gate.
+4. **`scenario=clean`/`flaws` (only after the gate passes)** — once validation has
+   passed, these levers may pick which canned success screen to show (`clean` →
+   no-major-flaws, `flaws` → fixed analyzed result) so all three screens stay
+   demoable on the live URLs. A video that fails validation is **always** rejected
+   regardless of scenario.
+5. **Real engine** — for a normal upload (no scenario), `detect_flaws` runs (in a
+   threadpool) over the returned series and produces the real flaws or the zero
+   result. If the gate reports `passed` but returns no series, the handler raises
+   a **500** rather than silently reporting a clean swing.
 
 There is **no filename inference** and **no mock in the success path**. The
 `Flaw` / `AnalyzeResponse` wire shapes are unchanged, so the frontend `/results`

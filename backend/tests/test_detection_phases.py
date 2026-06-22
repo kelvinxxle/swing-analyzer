@@ -56,6 +56,24 @@ def test_impact_returns_to_address_height() -> None:
     )
 
 
+def test_top_is_the_backswing_peak_not_a_high_finish() -> None:
+    # A swing whose follow-through finishes HIGHER than the backswing top: the
+    # global highest-hands frame is the finish, but `top` must still land on the
+    # backswing peak so the downswing window (top → impact) covers the real swing.
+    series = H.make_swing(high_finish=True)
+    frames = series.detected_frames
+    phases = detect_phases(frames)
+    assert phases is not None
+
+    global_highest = min(range(len(frames)), key=lambda i: _mean_wrist_y(frames[i]))
+    assert global_highest == len(frames) - 1  # the finish is the highest overall
+
+    # `top` is the backswing peak (well before the finish), and the downswing
+    # window top → impact sits in the middle of the swing, not at the very end.
+    assert phases.address_end <= phases.top < phases.impact < len(frames) - 1
+    assert _mean_wrist_y(frames[phases.top]) < _mean_wrist_y(frames[phases.address_end])
+
+
 def test_too_short_series_has_no_phases() -> None:
     series = H.make_swing(n=MIN_DETECTED_FRAMES - 1)
     assert detect_phases(series.detected_frames) is None

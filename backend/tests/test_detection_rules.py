@@ -61,3 +61,24 @@ def test_clean_swing_triggers_nothing() -> None:
     context = build_context(H.make_swing())
     assert context is not None
     assert not any(score.triggered for score in score_all(context))
+
+
+def _scores_by_id(series: PoseSeries) -> dict[FlawId, float]:
+    context = build_context(series)
+    assert context is not None
+    return {score.id: score.score for score in score_all(context)}
+
+
+def test_aspect_ratio_does_not_change_scores() -> None:
+    # The same physical swing must score identically regardless of frame aspect.
+    # `make_swing` encodes one swing; rendering it portrait vs landscape only
+    # changes width/height, and the engine's pixel-space conversion must cancel
+    # that out. Without the conversion, x/y would be in different units and the
+    # scores (hence flaw decisions) would drift with the video's dimensions.
+    flaws = {H.EARLY_EXTENSION, H.HEAD_SWAY, H.LOSS_OF_POSTURE, H.LOSS_OF_KNEE_FLEX}
+    portrait = _scores_by_id(H.make_swing(flaws, width=720, height=1280))
+    landscape = _scores_by_id(H.make_swing(flaws, width=1280, height=720))
+
+    assert portrait.keys() == landscape.keys()
+    for flaw_id, score in portrait.items():
+        assert score == pytest.approx(landscape[flaw_id], abs=1e-6)

@@ -15,6 +15,14 @@ Coordinates follow MediaPipe: normalized ``[0, 1]``, ``y`` grows downward. The
 default skeleton is bent toward the ball on the ``+x`` side (so ``ball_dir`` is
 ``+1``); a forward spine tilt of ~29° and clearly flexed knees give the posture
 and knee rules room to move.
+
+Joint *centers* are authored in a ``[0, 1]`` **reference square** and then mapped
+to whatever ``width`` × ``height`` the series declares, such that the *physical*
+(pixel-space) geometry the engine reconstructs is identical regardless of aspect
+ratio. So ``make_swing(..., width=720, height=1280)`` (portrait) and
+``width=1280, height=720`` (landscape) encode the **same** swing — which is what
+the aspect-ratio parity test relies on. The default is a square frame, so the
+authored centers are used verbatim.
 """
 
 from __future__ import annotations
@@ -22,6 +30,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from app.pose.schema import LANDMARK_ORDER, Landmark, LandmarkName, PoseFrame, PoseSeries
+
+# Side of the reference square the joint centers are authored in. Centers map to a
+# real frame as ``norm = center * REFERENCE_DIM / dimension`` per axis, so the
+# engine's ``norm * dimension`` recovers ``center * REFERENCE_DIM`` on both axes —
+# the same physical geometry for any width/height.
+_REFERENCE_DIM = 1000
 
 # Phase timeline (fractions of the clip): settle at address, hands highest at the
 # top, hands back down at impact. The rest is follow-through.
@@ -31,6 +45,9 @@ _T_IMPACT = 0.78
 
 # Hand-height keyframes (mid-wrist y): high backswing dips y, returns near address.
 _HAND_HEIGHT = ((0.0, 0.62), (_T_TOP, 0.25), (_T_IMPACT, 0.60), (1.0, 0.40))
+# A swing whose finish is HIGHER than the backswing top (hands above the top at the
+# end) — used to prove top-of-backswing detection ignores the follow-through.
+_HAND_HEIGHT_HIGH_FINISH = ((0.0, 0.62), (_T_TOP, 0.25), (_T_IMPACT, 0.60), (1.0, 0.12))
 
 # Left/right separation in x for each pair — small, as expected down-the-line.
 _DX = {
@@ -72,30 +89,48 @@ def make_swing(
     *,
     n: int = 30,
     fps: float = 30.0,
+    width: int = _REFERENCE_DIM,
+    height: int = _REFERENCE_DIM,
+    high_finish: bool = False,
 ) -> PoseSeries:
-    """Build a synthetic down-the-line swing, optionally exhibiting ``flaws``."""
-    frames = [_build_frame(i, n, fps, flaws) for i in range(n)]
+    """Build a synthetic down-the-line swing, optionally exhibiting ``flaws``.
+
+    ``width`` / ``height`` set the frame's pixel dimensions; the same swing is
+    encoded so that the engine reconstructs identical physical geometry at any
+    aspect ratio (the default is square). ``high_finish`` raises the follow-through
+    above the backswing top, to exercise top-of-backswing detection.
+    """
+    keyframes = _HAND_HEIGHT_HIGH_FINISH if high_finish else _HAND_HEIGHT
+    frames = [_build_frame(i, n, fps, flaws, width, height, keyframes) for i in range(n)]
     return PoseSeries(
         fps=fps,
         sampled_fps=fps,
         frame_count=n,
         sampled_count=n,
-        width=720,
-        height=1280,
+        width=width,
+        height=height,
         duration_s=n / fps,
         frames=frames,
     )
 
 
-def _build_frame(i: int, n: int, fps: float, flaws: frozenset[str] | set[str]) -> PoseFrame:
+def _build_frame(
+    i: int,
+    n: int,
+    fps: float,
+    flaws: frozenset[str] | set[str],
+    width: int,
+    height: int,
+    keyframes: tuple[tuple[float, float], ...],
+) -> PoseFrame:
     t = i / (n - 1) if n > 1 else 0.0
-    centers = _apply_flaws(Centers(wrist_y=_hand_height(t)), t, flaws)
+    centers = _apply_flaws(Centers(wrist_y=_piecewise(t, keyframes)), t, flaws)
     return PoseFrame(
         index=i,
         source_frame_index=i,
         timestamp_s=i / fps,
         detected=True,
-        landmarks=_expand(centers),
+        landmarks=_expand(centers, width, height),
     )
 
 
@@ -134,12 +169,21 @@ def _apply_flaws(c: Centers, t: float, flaws: frozenset[str] | set[str]) -> Cent
     return c
 
 
-def _expand(c: Centers) -> dict[LandmarkName, Landmark]:
-    """Expand joint centers into a full 33-landmark dict (left/right pairs)."""
-    landmarks = {
-        name: Landmark(x=0.5, y=0.5, z=0.0, visibility=0.95) for name in LANDMARK_ORDER
-    }
-    landmarks[LandmarkName.NOSE] = Landmark(x=c.nose_x, y=c.nose_y, z=0.0, visibility=0.95)
+def _expand(c: Centers, width: int, height: int) -> dict[LandmarkName, Landmark]:
+    """Expand joint centers into a full 33-landmark dict (left/right pairs).
+
+    Each center, authored in the reference square, is mapped to normalized frame
+    coordinates per axis (``center * REFERENCE_DIM / dimension``) so the engine
+    recovers the same physical geometry at any aspect ratio.
+    """
+    sx = _REFERENCE_DIM / width
+    sy = _REFERENCE_DIM / height
+
+    def lm(x: float, y: float) -> Landmark:
+        return Landmark(x=x * sx, y=y * sy, z=0.0, visibility=0.95)
+
+    landmarks = {name: lm(0.5, 0.5) for name in LANDMARK_ORDER}
+    landmarks[LandmarkName.NOSE] = lm(c.nose_x, c.nose_y)
     pairs: tuple[tuple[LandmarkName, LandmarkName, float, float, str], ...] = (
         (LandmarkName.LEFT_SHOULDER, LandmarkName.RIGHT_SHOULDER, c.sho_x, c.sho_y, "shoulder"),
         (LandmarkName.LEFT_HIP, LandmarkName.RIGHT_HIP, c.hip_x, c.hip_y, "hip"),
@@ -149,13 +193,9 @@ def _expand(c: Centers) -> dict[LandmarkName, Landmark]:
     )
     for left, right, x, y, kind in pairs:
         dx = _DX[kind]
-        landmarks[left] = Landmark(x=x - dx, y=y, z=0.0, visibility=0.95)
-        landmarks[right] = Landmark(x=x + dx, y=y, z=0.0, visibility=0.95)
+        landmarks[left] = lm(x - dx, y)
+        landmarks[right] = lm(x + dx, y)
     return landmarks
-
-
-def _hand_height(t: float) -> float:
-    return _piecewise(t, _HAND_HEIGHT)
 
 
 def _downswing_progress(t: float) -> float:
