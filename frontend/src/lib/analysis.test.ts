@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ANALYSIS_STORAGE_KEY,
+  analyzeEndpoint,
   destinationFor,
   parseAnalyzeResponse,
   readAnalysis,
@@ -47,6 +48,65 @@ describe("parseAnalyzeResponse", () => {
 
   it("rejects non-objects", () => {
     expect(() => parseAnalyzeResponse(null)).toThrow();
+  });
+
+  it("rejects when flaws is not an array", () => {
+    expect(() =>
+      parseAnalyzeResponse({ status: "analyzed", flaws: "nope" }),
+    ).toThrow();
+  });
+
+  it("rejects a malformed flaw (missing fix)", () => {
+    expect(() =>
+      parseAnalyzeResponse({
+        status: "analyzed",
+        flaws: [{ priority: 1, category: "Path", title: "t", description: "d" }],
+      }),
+    ).toThrow();
+  });
+
+  it("accepts a valid rejected response", () => {
+    const parsed = parseAnalyzeResponse({
+      status: "rejected",
+      flaws: [],
+      reason: {
+        headline: "Invalid Video Input Detected",
+        summary: "nope",
+        details: [{ code: "angle", label: "Reason 01", title: "Angle too wide" }],
+      },
+    });
+    expect(parsed.status).toBe("rejected");
+    expect(parsed.reason?.details).toHaveLength(1);
+  });
+
+  it("rejects a reason detail with an unknown code", () => {
+    expect(() =>
+      parseAnalyzeResponse({
+        status: "rejected",
+        flaws: [],
+        reason: {
+          headline: "h",
+          summary: "s",
+          details: [{ code: "lava", label: "Reason 01", title: "t" }],
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a reason missing summary", () => {
+    expect(() =>
+      parseAnalyzeResponse({
+        status: "rejected",
+        flaws: [],
+        reason: { headline: "h", details: [] },
+      }),
+    ).toThrow();
+  });
+});
+
+describe("analyzeEndpoint", () => {
+  it("targets the backend /analyze path", () => {
+    expect(analyzeEndpoint()).toMatch(/\/analyze$/);
   });
 });
 

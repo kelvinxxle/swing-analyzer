@@ -98,9 +98,13 @@ Results screen (text-only, prioritized)   ← no DB, video discarded
 
 ## The `/analyze` contract
 
-The frontend talks to the backend over a single endpoint. The browser uploads to
-a same-origin Next.js proxy route (`/api/analyze`), which forwards the multipart
-body to the FastAPI service — keeping CORS clean and the backend URL server-side.
+The frontend talks to the backend over a single endpoint. The browser posts the
+upload **directly** to the FastAPI `/analyze` service at `NEXT_PUBLIC_API_URL` —
+not through a Next.js proxy. A proxy would buffer the body through a Vercel
+serverless function, which rejects request bodies over ~4.5MB
+(`413 FUNCTION_PAYLOAD_TOO_LARGE`), while the UI allows uploads up to 50MB. CORS
+on the backend (`ALLOWED_ORIGINS`) already permits the Vercel origin, so a direct
+browser → backend `POST` is the simplest path that actually carries real clips.
 
 **Request** — `POST /analyze`, `multipart/form-data`:
 

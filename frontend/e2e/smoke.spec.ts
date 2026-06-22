@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * End-to-end coverage of the M3 walking-skeleton loop. The `/api/analyze` proxy
- * is stubbed via route interception so the test is hermetic — it exercises the
- * real upload → response → navigation wiring without a live backend.
+ * End-to-end coverage of the M3 walking-skeleton loop. The backend `/analyze`
+ * call is stubbed via route interception so the test is hermetic — it exercises
+ * the real upload → response → navigation wiring without a live backend.
  */
 
 const FLAWS_RESPONSE = {
@@ -44,7 +44,9 @@ const REJECTED_RESPONSE = {
 const CLEAN_RESPONSE = { status: "no_major_flaws", flaws: [], reason: null };
 
 async function stubAnalyze(page: Page, body: unknown) {
-  await page.route("**/api/analyze", async (route) => {
+  // The browser now posts directly to ${NEXT_PUBLIC_API_URL}/analyze (defaults
+  // to http://localhost:8000/analyze in CI). Intercept that to stay hermetic.
+  await page.route("**/analyze", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",

@@ -42,9 +42,9 @@ export default function ErrorPage() {
             {reason?.summary ?? FALLBACK_SUMMARY}
           </p>
 
-          {reason?.details.length ? (
+          {reason?.details?.length ? (
             <div className="mt-8 grid grid-cols-1 gap-4 text-left md:grid-cols-3">
-              {reason.details.map((detail) => (
+              {reason.details?.map((detail) => (
                 <ReasonCard key={detail.label} reason={detail} />
               ))}
             </div>

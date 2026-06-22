@@ -17,7 +17,9 @@ export default function ResultsPage() {
     setReady(true);
   }, []);
 
+  const isRejected = result?.status === "rejected";
   const hasFlaws = (result?.flaws.length ?? 0) > 0;
+  const loaded = ready && result !== null && !isRejected;
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -28,12 +30,14 @@ export default function ResultsPage() {
           Swing Report
         </h1>
         <p className="mt-2 font-sans text-body-md text-on-surface-secondary">
-          {hasFlaws
-            ? "Analysis complete. Top priority fixes identified."
-            : "Analysis complete."}
+          {loaded
+            ? hasFlaws
+              ? "Analysis complete. Top priority fixes identified."
+              : "Analysis complete."
+            : "Upload a swing to see your prioritized fixes."}
         </p>
 
-        {!ready ? null : !result ? (
+        {!ready ? null : !result || isRejected ? (
           <NoResult />
         ) : hasFlaws ? (
           <>

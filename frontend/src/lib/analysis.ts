@@ -58,6 +58,18 @@ export function destinationFor(status: AnalysisStatus): "/results" | "/error" {
 }
 
 /**
+ * Absolute URL of the FastAPI `/analyze` endpoint. The browser posts the video
+ * straight to the backend (not through a Next.js proxy): a Vercel serverless
+ * function would buffer the body and reject uploads over ~4.5MB, while the UI
+ * allows up to 50MB. `NEXT_PUBLIC_API_URL` is public by design; CORS on the
+ * backend already allows the Vercel origin.
+ */
+export function analyzeEndpoint(): string {
+  const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  return `${base.replace(/\/$/, "")}/analyze`;
+}
+
+/**
  * Ephemeral, browser-only handoff between the upload screen and the result
  * screens. Consistent with the PRD's no-persistence rule — nothing is stored
  * server-side and the value lives only for the tab session.
@@ -80,13 +92,70 @@ export function readAnalysis(): AnalyzeResponse | null {
   }
 }
 
-/** Narrowing parse so malformed payloads fail closed instead of rendering junk. */
+const REASON_CODES: ReasonCode[] = ["angle", "lighting", "no_golfer"];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseFlaw(value: unknown): Flaw {
+  if (!isRecord(value)) {
+    throw new Error("Invalid analyze response: flaw is not an object");
+  }
+  const { priority, category, title, description, fix } = value;
+  if (
+    typeof priority !== "number" ||
+    typeof category !== "string" ||
+    typeof title !== "string" ||
+    typeof description !== "string" ||
+    typeof fix !== "string"
+  ) {
+    throw new Error("Invalid analyze response: malformed flaw");
+  }
+  return { priority, category, title, description, fix };
+}
+
+function parseRejectionDetail(value: unknown): RejectionReason {
+  if (!isRecord(value)) {
+    throw new Error("Invalid analyze response: reason detail is not an object");
+  }
+  const { code, label, title } = value;
+  if (
+    typeof code !== "string" ||
+    !REASON_CODES.includes(code as ReasonCode) ||
+    typeof label !== "string" ||
+    typeof title !== "string"
+  ) {
+    throw new Error("Invalid analyze response: malformed reason detail");
+  }
+  return { code: code as ReasonCode, label, title };
+}
+
+function parseRejection(value: unknown): Rejection {
+  if (!isRecord(value)) {
+    throw new Error("Invalid analyze response: reason is not an object");
+  }
+  const { headline, summary, details } = value;
+  if (typeof headline !== "string" || typeof summary !== "string") {
+    throw new Error("Invalid analyze response: malformed reason");
+  }
+  if (!Array.isArray(details)) {
+    throw new Error("Invalid analyze response: reason.details is not an array");
+  }
+  return { headline, summary, details: details.map(parseRejectionDetail) };
+}
+
+/**
+ * Narrowing parse so malformed payloads fail closed instead of rendering junk.
+ * Every field is validated — including each flaw's shape and each rejection
+ * detail's `code` — so `readAnalysis()` returns null (rather than crashing
+ * `REASON_ICONS[code]`) on anything unexpected.
+ */
 export function parseAnalyzeResponse(value: unknown): AnalyzeResponse {
-  if (typeof value !== "object" || value === null) {
+  if (!isRecord(value)) {
     throw new Error("Invalid analyze response: not an object");
   }
-  const record = value as Record<string, unknown>;
-  const status = record.status;
+  const status = value.status;
   if (
     status !== "analyzed" &&
     status !== "no_major_flaws" &&
@@ -94,10 +163,16 @@ export function parseAnalyzeResponse(value: unknown): AnalyzeResponse {
   ) {
     throw new Error(`Invalid analyze response: unknown status ${String(status)}`);
   }
-  const flaws = Array.isArray(record.flaws) ? (record.flaws as Flaw[]) : [];
+
+  if (!Array.isArray(value.flaws)) {
+    throw new Error("Invalid analyze response: flaws is not an array");
+  }
+  const flaws = value.flaws.map(parseFlaw);
+
   const reason =
-    record.reason && typeof record.reason === "object"
-      ? (record.reason as Rejection)
-      : null;
+    value.reason === undefined || value.reason === null
+      ? null
+      : parseRejection(value.reason);
+
   return { status, flaws, reason };
 }

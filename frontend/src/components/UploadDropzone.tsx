@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { CloudUploadIcon, VideoIcon } from "@/components/icons";
 import { ProgressBar } from "@/components/ProgressBar";
 import {
+  analyzeEndpoint,
   destinationFor,
   parseAnalyzeResponse,
   storeAnalysis,
@@ -60,7 +61,11 @@ export function UploadDropzone() {
 
     const xhr = new XMLHttpRequest();
     xhrRef.current = xhr;
-    xhr.open("POST", "/api/analyze");
+    // Post straight to the FastAPI backend. Routing through a Next.js proxy
+    // would buffer the body through a Vercel serverless function, which rejects
+    // payloads over ~4.5MB — and the UI allows up to 50MB. CORS is configured on
+    // the backend for the Vercel origin, so a direct browser → backend POST is fine.
+    xhr.open("POST", analyzeEndpoint());
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
