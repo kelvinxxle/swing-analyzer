@@ -140,11 +140,13 @@ browser → backend `POST` is the simplest path that actually carries real clips
 - `400` for genuinely bad requests (missing/empty file, non-video content-type) —
   a transport error, distinct from a domain `rejected` result.
 
-> **M3 status:** results are **mocked** — real pose extraction and flaw detection
-> land in M4–M6. The mock case is chosen deterministically: an explicit
-> `scenario` field wins, otherwise it is inferred from the uploaded filename
-> (e.g. `bad-angle.mp4` → rejected, `good-swing.mp4` → no major flaws), so all
-> three paths are demoable on the deployed URLs.
+> **M6 status:** real flaw detection is live. A normal upload runs the M5
+> validation gate and then the **rule-based detection engine** (`app/detection/`)
+> over the extracted pose series, returning the real top-2–3 flaws or a valid
+> "no major flaws" result. The `scenario` field is now a **canned demo override
+> only**: `flaws`/`clean`/`rejected` short-circuit to a fixed screen so all three
+> paths stay demoable on the deployed URLs. Filename inference has been removed —
+> it must never hijack real detection.
 
 ## How this maps to the PRD
 

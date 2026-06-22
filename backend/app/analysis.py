@@ -1,12 +1,16 @@
-"""Mock swing-analysis logic for the M3 walking skeleton.
+"""The `/analyze` response contract + the demo-only canned screens.
 
-No real computer vision yet (that lands in M4–M6). `/analyze` returns hardcoded
-results for three demoable cases — a happy path with 2–3 flaws, a valid
-"no major flaws detected" result, and a rejected bad-input result with a reason.
-
-The case is chosen deterministically: an explicit ``scenario`` wins, otherwise it
-is inferred from the uploaded filename so all three paths are demoable on the
-deployed URLs just by naming the file.
+Real flaw detection lives in ``app.detection`` (M6) and is what a normal upload
+runs. What remains here is the **contract** (``Flaw`` / ``AnalyzeResponse`` /
+``AnalysisStatus`` — the shape the frontend renders) and the deliberate
+**demo levers**: ``build_response`` returns hardcoded screens for the explicit
+``scenario`` form field (``flaws`` / ``clean`` / ``rejected``) so all three result
+states stay demoable on the deployed URLs without a real swing video. Normal
+uploads (those with **no ``scenario`` field**) always run validation then the real
+engine. The levers are reachable only via the explicit form field, and crucially
+they do **not** bypass the M5 gate: ``rejected`` forces a failure, while
+``clean`` / ``flaws`` only pick a success screen *after* the gate passes — so a bad
+video is always rejected regardless of ``scenario``.
 """
 
 from __future__ import annotations
@@ -81,9 +85,12 @@ class AnalyzeResponse(BaseModel):
     reason: RejectionReason | None = None
 
 
-# --- Mock catalog -----------------------------------------------------------
+# --- Demo-lever canned screens ----------------------------------------------
+# These back the explicit ``scenario`` form field only (never a real upload),
+# so the analyzed / no-major-flaws / rejected screens stay demoable on the live
+# URLs. A normal upload runs the real M6 engine (``app.detection``) instead.
 
-_MOCK_FLAWS: list[Flaw] = [
+_DEMO_FLAWS: list[Flaw] = [
     Flaw(
         priority=1,
         category="Posture Loss",
@@ -115,7 +122,7 @@ _MOCK_FLAWS: list[Flaw] = [
     ),
 ]
 
-_MOCK_REJECTION = RejectionReason(
+_DEMO_REJECTION = RejectionReason(
     headline="Invalid Video Input Detected",
     summary=(
         "The video provided does not meet the guidelines required for auto-detection. "
@@ -129,42 +136,25 @@ _MOCK_REJECTION = RejectionReason(
     ],
 )
 
-# Filename keywords that pick which *success* screen to show — only ever applied
-# to a video that already passed validation (see ``resolve_success_scenario``).
-_CLEAN_HINTS = ("clean", "good", "perfect", "pro", "ideal")
-
-
-def resolve_success_scenario(
-    filename: str | None, scenario: Scenario | None
-) -> Scenario:
-    """Pick which **success** screen to show for a video that passed validation.
-
-    The demo override may only choose among *success* presentations — it can never
-    turn a failing video into a success, because the real gate runs first and
-    rejects bad input before this is consulted. An explicit ``scenario`` form
-    field wins; otherwise a recognized filename keyword selects "no major flaws";
-    the default is the mock flaws result (real detection lands in M6).
-    """
-    if scenario is Scenario.CLEAN or scenario is Scenario.FLAWS:
-        return scenario
-
-    name = (filename or "").lower()
-    if any(hint in name for hint in _CLEAN_HINTS):
-        return Scenario.CLEAN
-    return Scenario.FLAWS
-
 
 def build_response(scenario: Scenario) -> AnalyzeResponse:
-    """Return the mock `/analyze` response for a chosen scenario."""
+    """Return the canned demo `/analyze` response for an explicit ``scenario``.
+
+    Used only for the ``scenario`` form-field dev lever, so each result screen is
+    demoable on the deployed URLs. ``rejected`` is returned before the gate (it
+    forces a failure); ``clean`` / ``flaws`` are returned by the handler only
+    *after* the real M5 gate has passed, so this never masks a bad video. Normal
+    uploads (no ``scenario``) bypass this entirely and run the real M6 engine.
+    """
     if scenario is Scenario.REJECTED:
         return AnalyzeResponse(
             status=AnalysisStatus.REJECTED,
             flaws=[],
-            reason=_MOCK_REJECTION.model_copy(deep=True),
+            reason=_DEMO_REJECTION.model_copy(deep=True),
         )
     if scenario is Scenario.CLEAN:
         return AnalyzeResponse(status=AnalysisStatus.NO_MAJOR_FLAWS, flaws=[])
     return AnalyzeResponse(
         status=AnalysisStatus.ANALYZED,
-        flaws=[flaw.model_copy(deep=True) for flaw in _MOCK_FLAWS],
+        flaws=[flaw.model_copy(deep=True) for flaw in _DEMO_FLAWS],
     )

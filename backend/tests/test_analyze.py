@@ -1,17 +1,19 @@
-"""Tests for the `/analyze` endpoint: demo overrides (mock) + the real M5 gate."""
+"""Tests for the `/analyze` endpoint: demo overrides + the real M5 gate + M6 engine."""
 
 from __future__ import annotations
 
 import io
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
+import detection_helpers as H
 import pytest
 from fastapi.testclient import TestClient
 from pose_helpers import make_synthetic_clip
 
 from app.main import app
+from app.pose.schema import PoseSeries
 
 client = TestClient(app)
 
@@ -29,28 +31,42 @@ def _clip_upload(
 
 
 @pytest.fixture
-def passing_gate() -> Iterator[None]:
-    """Stub the gate to 'passed' so success-screen selection can be tested.
+def stub_gate() -> Iterator[Callable[[PoseSeries], None]]:
+    """Stub the validation gate to 'passed', returning a chosen pose series.
 
-    A passing real video is impossible to synthesize hermetically (a clip with no
-    human is correctly rejected as ``no_golfer``), so success-path tests stub the
-    gate and assert only which success screen the endpoint chooses.
+    A passing *real* video is impossible to synthesize hermetically (a clip with
+    no human is correctly rejected as ``no_golfer``), so the success-path tests
+    stub the gate to hand the endpoint a constructed series and assert what the
+    **real M6 engine** then produces from it.
     """
     import app.main as main
     from app.validation.result import ValidationResult
 
-    def _passed(*_args: object, **_kwargs: object) -> tuple[ValidationResult, None]:
-        return ValidationResult(), None
-
     original = main.validate_video
-    main.validate_video = _passed  # type: ignore[assignment]
+
+    def install(series: PoseSeries) -> None:
+        def _passed(*_args: object, **_kwargs: object) -> tuple[ValidationResult, PoseSeries]:
+            return ValidationResult(), series
+
+        main.validate_video = _passed  # type: ignore[assignment]
+
     try:
-        yield
+        yield install
     finally:
         main.validate_video = original  # type: ignore[assignment]
 
 
-def test_analyze_passing_video_returns_flaws(passing_gate: None) -> None:
+def test_analyze_real_engine_returns_ranked_flaws(
+    stub_gate: Callable[[PoseSeries], None],
+) -> None:
+    # On a passing video the endpoint runs the REAL M6 engine over the gate's
+    # series. A swing engineered to exhibit several flaws yields a prioritized,
+    # top-3-capped list — no mock involved.
+    stub_gate(
+        H.make_swing(
+            {H.EARLY_EXTENSION, H.LOSS_OF_POSTURE, H.HEAD_SWAY, H.OVER_THE_TOP}
+        )
+    )
     response = client.post("/analyze", files=_video())
     assert response.status_code == 200
 
@@ -58,13 +74,35 @@ def test_analyze_passing_video_returns_flaws(passing_gate: None) -> None:
     assert body["status"] == "analyzed"
     assert body["reason"] is None
     assert 2 <= len(body["flaws"]) <= 3
+    assert [flaw["priority"] for flaw in body["flaws"]] == list(
+        range(1, len(body["flaws"]) + 1)
+    )
     for flaw in body["flaws"]:
         assert flaw["fix"].strip()
         assert flaw["title"].strip()
+        assert flaw["description"].strip()
 
 
-def test_analyze_clean_scenario_picks_no_major_flaws(passing_gate: None) -> None:
-    # The success override only chooses a screen for a video that already passed.
+def test_analyze_real_engine_reports_no_major_flaws(
+    stub_gate: Callable[[PoseSeries], None],
+) -> None:
+    # A clean swing through the real engine is a valid zero-flaw result.
+    stub_gate(H.make_swing())
+    response = client.post("/analyze", files=_video())
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["status"] == "no_major_flaws"
+    assert body["flaws"] == []
+    assert body["reason"] is None
+
+
+def test_analyze_clean_scenario_is_canned_no_major_flaws(
+    stub_gate: Callable[[PoseSeries], None],
+) -> None:
+    # The CLEAN demo override returns a canned success screen, but ONLY after the
+    # real gate passes (here stubbed to passing) — it never bypasses validation.
+    stub_gate(H.make_swing())
     response = client.post("/analyze", files=_video(), data={"scenario": "clean"})
     assert response.status_code == 200
 
@@ -74,20 +112,62 @@ def test_analyze_clean_scenario_picks_no_major_flaws(passing_gate: None) -> None
     assert body["reason"] is None
 
 
-def test_analyze_clean_filename_picks_no_major_flaws(passing_gate: None) -> None:
-    files = {"file": ("good-swing.mp4", io.BytesIO(b"data"), "video/mp4")}
-    response = client.post("/analyze", files=files)
+def test_analyze_flaws_scenario_is_canned_analyzed(
+    stub_gate: Callable[[PoseSeries], None],
+) -> None:
+    # The FLAWS demo override returns the canned analyzed screen — also only after
+    # the gate passes (stubbed). It's a dev lever, never real detection.
+    stub_gate(H.make_swing())
+    response = client.post("/analyze", files=_video(), data={"scenario": "flaws"})
     assert response.status_code == 200
-    assert response.json()["status"] == "no_major_flaws"
+
+    body = response.json()
+    assert body["status"] == "analyzed"
+    assert 2 <= len(body["flaws"]) <= 3
 
 
-def test_analyze_scenario_flaws_overrides_clean_filename(passing_gate: None) -> None:
-    # An explicit success scenario wins over a filename hint — but only among
-    # success screens, for a video that passed validation.
-    files = {"file": ("good-swing.mp4", io.BytesIO(b"data"), "video/mp4")}
+def test_clean_scenario_cannot_mask_a_bad_clip() -> None:
+    # P1 regression: scenario=clean must NOT bypass the gate. An undecodable
+    # upload is rejected even with the CLEAN demo lever set.
+    files = {"file": ("clip.mp4", io.BytesIO(b"\x00\x01nope"), "video/mp4")}
+    response = client.post("/analyze", files=files, data={"scenario": "clean"})
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["status"] == "rejected"
+    assert _reason_code(body) == "unreadable"
+
+
+def test_flaws_scenario_cannot_mask_a_bad_clip() -> None:
+    # Same P1 regression from the FLAWS side: the demo lever can never force a
+    # success result on a video that fails validation.
+    files = {"file": ("clip.mp4", io.BytesIO(b"\x00\x01nope"), "video/mp4")}
     response = client.post("/analyze", files=files, data={"scenario": "flaws"})
     assert response.status_code == 200
-    assert response.json()["status"] == "analyzed"
+
+    body = response.json()
+    assert body["status"] == "rejected"
+    assert _reason_code(body) == "unreadable"
+
+
+def test_analyze_passing_gate_without_series_fails_loud() -> None:
+    # Defensive P? fix: if the gate reports 'passed' but hands back no series
+    # (an internal pipeline fault), the endpoint must surface a 500 rather than
+    # silently reporting a clean swing.
+    import app.main as main
+    from app.validation.result import ValidationResult
+
+    original = main.validate_video
+
+    def _passed_no_series(*_a: object, **_k: object) -> tuple[ValidationResult, None]:
+        return ValidationResult(), None
+
+    main.validate_video = _passed_no_series  # type: ignore[assignment]
+    try:
+        response = client.post("/analyze", files=_video())
+    finally:
+        main.validate_video = original  # type: ignore[assignment]
+    assert response.status_code == 500
 
 
 def test_analyze_rejected_scenario_is_a_single_reason_dev_lever() -> None:
