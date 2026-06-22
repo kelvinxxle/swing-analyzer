@@ -43,6 +43,36 @@ def test_pose_frame_allows_missing_detection() -> None:
     assert frame.landmarks is None
 
 
+def test_pose_frame_detected_with_landmarks_is_valid() -> None:
+    frame = PoseFrame(
+        index=0,
+        source_frame_index=0,
+        timestamp_s=0.0,
+        detected=True,
+        landmarks=full_landmark_set(),
+    )
+    assert frame.detected is True
+    assert frame.landmarks is not None
+
+
+def test_pose_frame_rejects_detected_without_landmarks() -> None:
+    with pytest.raises(ValidationError):
+        PoseFrame(
+            index=0, source_frame_index=0, timestamp_s=0.0, detected=True, landmarks=None
+        )
+
+
+def test_pose_frame_rejects_landmarks_without_detected() -> None:
+    with pytest.raises(ValidationError):
+        PoseFrame(
+            index=0,
+            source_frame_index=0,
+            timestamp_s=0.0,
+            detected=False,
+            landmarks=full_landmark_set(),
+        )
+
+
 def test_series_round_trip_serialization() -> None:
     frame = PoseFrame(
         index=0,

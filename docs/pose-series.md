@@ -81,7 +81,9 @@ A golf swing is short but fast, so running pose estimation on every frame of a
 1. **Target ~30 fps.** Integer stride `round(source_fps / target_fps)`, clamped
    to ≥ 1. Clips at or below 30 fps are processed frame-for-frame.
 2. **Frame budget (default 150).** If the target stride would exceed the budget,
-   the stride is widened until it fits — bounding worst-case latency.
+   the stride is widened until it fits — bounding worst-case latency. The decode
+   loop also enforces the budget as a hard cap, so it holds even when the source
+   omits frame-count metadata (and the stride therefore can't be pre-widened).
 
 **Why uniform 30 fps:** a ~0.25 s downswing still yields ~7–8 frames at 30 fps —
 enough to capture transition and impact for the geometric rules in M6 — without

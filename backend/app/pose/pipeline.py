@@ -68,7 +68,7 @@ def extract_pose_series(
             fps = config.target_fps
 
         stride = compute_stride(fps, max(frame_count, 0), config)
-        frames = _decode_and_estimate(capture, fps, stride, pose)
+        frames = _decode_and_estimate(capture, fps, stride, pose, config.max_frames)
 
         # Frame count / dimensions may be missing in metadata; recover from what
         # we actually decoded so the series is internally consistent.
@@ -102,12 +102,20 @@ def _decode_and_estimate(
     fps: float,
     stride: int,
     estimator: PoseEstimator,
+    max_frames: int,
 ) -> list[PoseFrame]:
-    """Walk the video, estimating pose on every ``stride``-th frame."""
+    """Walk the video, estimating pose on every ``stride``-th frame.
+
+    ``max_frames`` is a hard backstop: decoding stops once that many frames have
+    been sampled. The stride is normally widened upstream so the cap is rarely
+    hit, but when frame-count metadata is missing (``CAP_PROP_FRAME_COUNT`` == 0)
+    that widening can't happen — this loop-level cap preserves the bounded-latency
+    guarantee regardless.
+    """
     frames: list[PoseFrame] = []
     source_index = 0
     sampled_index = 0
-    while True:
+    while sampled_index < max_frames:
         grabbed = capture.grab()
         if not grabbed:
             break

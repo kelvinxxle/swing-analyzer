@@ -35,7 +35,9 @@ def compute_stride(source_fps: float, frame_count: int, config: SamplingConfig) 
     if frame_count < 0:
         raise ValueError("frame_count must be non-negative")
 
-    stride = max(1, round(source_fps / config.target_fps))
+    # Round half up so ties pick the larger stride (closer to target_fps): e.g.
+    # 75fps / 30fps target = 2.5 → stride 3 (~25fps), not banker's-rounded 2.
+    stride = max(1, math.floor(source_fps / config.target_fps + 0.5))
 
     # Widen the stride until the resulting sample count fits the budget.
     if frame_count > 0:

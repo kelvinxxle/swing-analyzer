@@ -64,6 +64,23 @@ def test_frame_budget_caps_sampled_frames(tmp_path: Path) -> None:
     assert series.sampled_count <= 20
 
 
+def test_frame_budget_enforced_without_stride_widening(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Simulate missing frame-count metadata: stride can't be widened upstream, so
+    # the decode loop's hard cap must still bound the sampled frames.
+    monkeypatch.setattr("app.pose.pipeline.compute_stride", lambda *a, **k: 1)
+    clip = make_synthetic_clip(tmp_path / "long.mp4", frames=120, fps=30.0)
+    estimator = FakePoseEstimator(detect=True)
+
+    series = extract_pose_series(
+        clip, SamplingConfig(target_fps=30, max_frames=15), estimator
+    )
+
+    assert series.sampled_count == 15
+    assert estimator.calls == 15
+
+
 def test_undetected_frames_marked(tmp_path: Path) -> None:
     clip = make_synthetic_clip(tmp_path / "swing.mp4", frames=10, fps=30.0)
     estimator = FakePoseEstimator(detect=False)

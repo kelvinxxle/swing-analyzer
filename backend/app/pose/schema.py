@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class LandmarkName(str, Enum):
@@ -131,6 +131,13 @@ class PoseFrame(BaseModel):
     timestamp_s: float = Field(ge=0.0, description="Presentation time of the frame, in seconds.")
     detected: bool
     landmarks: dict[LandmarkName, Landmark] | None = None
+
+    @model_validator(mode="after")
+    def _detected_matches_landmarks(self) -> PoseFrame:
+        """``detected`` must mirror landmark presence — downstream rules rely on it."""
+        if self.detected != (self.landmarks is not None):
+            raise ValueError("`detected` must equal whether `landmarks` is present")
+        return self
 
 
 class PoseSeries(BaseModel):

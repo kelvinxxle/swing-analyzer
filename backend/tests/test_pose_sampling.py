@@ -25,6 +25,12 @@ def test_stride_downsamples_high_fps() -> None:
     assert compute_stride(120.0, 600, config) == 4
 
 
+def test_stride_rounds_half_up() -> None:
+    config = SamplingConfig(target_fps=30, max_frames=1000)
+    # 75 / 30 = 2.5 → round half up to stride 3 (~25fps, closer to 30 than 37.5).
+    assert compute_stride(75.0, 300, config) == 3
+
+
 def test_stride_widens_to_respect_max_frames() -> None:
     config = SamplingConfig(target_fps=30, max_frames=50)
     # 30 fps, 300 frames → target stride 1 would give 300 > 50, so widen.
