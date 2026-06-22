@@ -16,6 +16,12 @@ python_version = "3.12"
 strict = true
 files = ["app"]
 
+# MediaPipe and OpenCV ship no type stubs; scope the relaxation to those imports
+# so strict typing stays fully enforced across our own code.
+[[tool.mypy.overrides]]
+module = ["mediapipe.*", "cv2.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

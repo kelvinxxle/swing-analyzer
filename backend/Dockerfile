@@ -6,6 +6,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# OpenCV (pulled in by mediapipe as opencv-contrib-python) needs libGL and
+# libglib at import time, even for headless use. Install them before pip so the
+# CV pipeline can decode video and run pose estimation in the container.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
