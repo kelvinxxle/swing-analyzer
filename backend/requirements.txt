@@ -1,3 +1,12 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 python-multipart==0.0.20
+
+# Pose-extraction pipeline (M4). mediapipe ships cp312 wheels from 0.10.14+ and
+# hard-depends on opencv-contrib-python (non-headless) and numpy<2, so we pin a
+# compatible numpy and reuse mediapipe's OpenCV build for video decode. The GUI
+# OpenCV needs libgl1 + libglib2.0-0 at import time (installed in the Dockerfile
+# and CI), so no separate headless OpenCV is added.
+mediapipe==0.10.21
+opencv-contrib-python==4.11.0.86
+numpy==1.26.4
