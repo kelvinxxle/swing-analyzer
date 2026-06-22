@@ -1,55 +1,76 @@
 {
   "version": 1,
-  "_comment": "Golden-fixture manifest. Each clip maps a real or generated video to its expected /analyze outcome. See README.md for how to add a clip and the capture gate it must pass. Entries with a `file` that is not committed yet are SKIPPED by the loader (keeps CI green with a partial set); entries with a `generator` are built programmatically at test time.",
+  "_comment": "Golden-fixture manifest. Each clip maps a real or generated video to its expected /analyze outcome. See README.md for how to add a clip and the capture gate it must pass. Entries with a `file` that is not committed yet are SKIPPED by the loader (keeps CI green with a partial set); entries with a `generator` are built programmatically at test time. Optional per-clip provenance fields (all backward-compatible, validated only when present): `local_only` (bool — the clip is held locally and never committed, true for every real-footage entry on this public repo), `source_url` (where a contributor's local copy came from), `attribution`, and `note`. Record provenance for a clip you hold locally WITHOUT committing the media — see ../../../../docs/fixtures-credits.md.",
   "clips": [
     {
       "id": "good-dtl-01",
       "bucket": "good",
       "file": "good/good-dtl-01.mp4",
       "expect": { "status": "no_major_flaws" },
-      "source": null
+      "local_only": true,
+      "source_url": null,
+      "attribution": null,
+      "note": null
     },
     {
       "id": "good-dtl-02",
       "bucket": "good",
       "file": "good/good-dtl-02.mp4",
       "expect": { "status": "no_major_flaws" },
-      "source": null
+      "local_only": true,
+      "source_url": null,
+      "attribution": null,
+      "note": null
     },
     {
       "id": "early-extension-01",
       "bucket": "flaw",
       "file": "flaws/early-extension-01.mp4",
       "expect": { "status": "analyzed", "flaw_in_top": "early_extension", "max_priority": 3 },
-      "source": null
+      "local_only": true,
+      "source_url": null,
+      "attribution": null,
+      "note": null
     },
     {
       "id": "loss-of-posture-01",
       "bucket": "flaw",
       "file": "flaws/loss-of-posture-01.mp4",
       "expect": { "status": "analyzed", "flaw_in_top": "loss_of_posture", "max_priority": 3 },
-      "source": null
+      "local_only": true,
+      "source_url": null,
+      "attribution": null,
+      "note": null
     },
     {
       "id": "head-sway-01",
       "bucket": "flaw",
       "file": "flaws/head-sway-01.mp4",
       "expect": { "status": "analyzed", "flaw_in_top": "head_sway", "max_priority": 3 },
-      "source": null
+      "local_only": true,
+      "source_url": null,
+      "attribution": null,
+      "note": null
     },
     {
       "id": "loss-of-knee-flex-01",
       "bucket": "flaw",
       "file": "flaws/loss-of-knee-flex-01.mp4",
       "expect": { "status": "analyzed", "flaw_in_top": "loss_of_knee_flex", "max_priority": 3 },
-      "source": null
+      "local_only": true,
+      "source_url": null,
+      "attribution": null,
+      "note": null
     },
     {
       "id": "over-the-top-01",
       "bucket": "flaw",
       "file": "flaws/over-the-top-01.mp4",
       "expect": { "status": "analyzed", "flaw_in_top": "over_the_top", "max_priority": 3 },
-      "source": null
+      "local_only": true,
+      "source_url": null,
+      "attribution": null,
+      "note": null
     },
     {
       "id": "bad-dark-01",
@@ -86,14 +107,20 @@
       "bucket": "bad_input",
       "file": "bad/angle-face-on-01.mp4",
       "expect": { "status": "rejected", "reason_code": "angle" },
-      "source": null
+      "local_only": true,
+      "source_url": null,
+      "attribution": null,
+      "note": null
     },
     {
       "id": "bad-framing-01",
       "bucket": "bad_input",
       "file": "bad/framing-out-of-frame-01.mp4",
       "expect": { "status": "rejected", "reason_code": "framing" },
-      "source": null
+      "local_only": true,
+      "source_url": null,
+      "attribution": null,
+      "note": null
     }
   ]
 }
