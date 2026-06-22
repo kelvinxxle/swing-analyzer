@@ -45,8 +45,23 @@ Other checks: `ruff check .`, `mypy app`, `pytest`.
 `/analyze` runs a real **input-validation gate** before analysis — bad videos are
 rejected with a specific reason. A passing video is then scored by the real
 **rule-based flaw detection engine**, which returns the top 2–3 flaws (or a valid
-"no major flaws" result). See [`docs/validation.md`](docs/validation.md) and
+"no major flaws" result). The endpoint is bounded for production: uploads over
+`MAX_UPLOAD_BYTES` (50MB) get a 413, processing past `MAX_ANALYSIS_SECONDS` (60s)
+gets a 504, and unexpected faults get a controlled 500. See
+[`docs/validation.md`](docs/validation.md) and
 [`docs/detection.md`](docs/detection.md).
+
+### Golden fixtures
+
+Real-clip correctness is guarded by a golden harness at
+[`backend/tests/fixtures/golden/`](backend/tests/fixtures/golden/) — a JSON
+manifest mapping each clip to its expected result, run through the real pipeline
+by `tests/test_golden_fixtures.py`. Bad-input cases are generated
+programmatically; real good/flaw footage is committed only when its license is
+cleared ([`docs/fixtures-credits.md`](docs/fixtures-credits.md)), and uncommitted
+buckets skip with a clear message so CI stays green as clips are added. To
+contribute a clip, follow the
+[golden README](backend/tests/fixtures/golden/README.md).
 
 Run it as a container instead (matches production):
 
@@ -60,7 +75,11 @@ docker run --rm -p 8000:8000 swing-analyzer-backend
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every PR to `main`:
 
 - **Frontend:** lint · typecheck · test · build
-- **Backend:** ruff · mypy · pytest
+- **Backend:** ruff · mypy · pytest (incl. the golden-fixture loader)
+- **End-to-end:** Playwright covers upload → analyzing → each of the 3 result
+  screens, plus the graceful non-2xx error path.
+
+Before launch, walk the [v1 launch checklist](docs/launch-checklist.md).
 
 ## Deployment
 
