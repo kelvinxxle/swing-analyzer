@@ -12,11 +12,13 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.analysis import (
+    AnalysisStatus,
     AnalyzeResponse,
     Scenario,
     build_response,
-    select_scenario,
+    resolve_demo_scenario,
 )
+from app.validation import validate_video
 
 # Stream uploads to disk in modest chunks so a large video never sits fully in
 # memory. The bytes are discarded immediately after — nothing is persisted.
@@ -57,12 +59,16 @@ async def analyze(
 ) -> AnalyzeResponse:
     """Analyze one swing video and return the top 2–3 flaws (or a rejection).
 
-    **M3 walking skeleton — results are mocked.** Real pose extraction and flaw
-    detection land in M4–M6. The video is processed in an ephemeral temp file and
-    discarded immediately; nothing is stored (per the PRD no-persistence non-goal).
+    **M5 — input validation is real; flaw detection is still mock.** A validation
+    gate runs *before* analysis: a video that fails the capture guidelines returns
+    ``{ status: "rejected", reason }`` with a specific reason (PRD bad-input rule).
+    A video that passes falls through to the mock flaw result until M6 lands real
+    detection. The upload is processed in an ephemeral temp file and discarded
+    immediately — nothing is stored (per the PRD no-persistence non-goal).
 
-    The mock case is chosen deterministically: an explicit ``scenario`` form field
-    wins, otherwise it is inferred from the uploaded filename.
+    Demo paths are preserved: an explicit ``scenario`` form field or a recognized
+    filename keyword forces a mock outcome, so all three screens stay demoable on
+    the deployed URLs. Any other upload runs the real validation gate.
     """
     if file.content_type and not file.content_type.startswith("video/"):
         raise HTTPException(
@@ -70,29 +76,40 @@ async def analyze(
             detail="Unsupported file type. Upload a video (MP4 or MOV).",
         )
 
-    size = await _drain_to_tempfile(file)
-    if size == 0:
-        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
-
-    chosen = select_scenario(file.filename, scenario)
-    return build_response(chosen)
-
-
-async def _drain_to_tempfile(file: UploadFile) -> int:
-    """Stream the upload to a temp file, return its byte size, then delete it.
-
-    Mirrors the real M4+ pipeline (which will decode the saved file) while
-    guaranteeing the bytes are discarded — the service stays stateless.
-    """
     tmp_dir = Path(tempfile.mkdtemp(prefix="swing-analyzer-"))
     tmp_path = tmp_dir / "upload"
-    size = 0
     try:
-        with tmp_path.open("wb") as buffer:
-            while chunk := await file.read(_CHUNK_SIZE):
-                size += len(chunk)
-                buffer.write(chunk)
-        return size
+        size = await _drain_to_path(file, tmp_path)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+
+        # Demo override wins so the deployed URLs can still show every screen.
+        demo = resolve_demo_scenario(file.filename, scenario)
+        if demo is not None:
+            return build_response(demo)
+
+        # Real M5 gate: reject bad input with a specific reason; a passing video
+        # continues to the mock analysis (real detection lands in M6).
+        result, _series = validate_video(tmp_path)
+        if not result.passed:
+            return AnalyzeResponse(
+                status=AnalysisStatus.REJECTED, flaws=[], reason=result.rejection
+            )
+        return build_response(Scenario.FLAWS)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         await file.close()
+
+
+async def _drain_to_path(file: UploadFile, dest: Path) -> int:
+    """Stream the upload to ``dest`` in chunks and return its byte size.
+
+    Streaming keeps a large video off the heap; the caller owns the temp file's
+    lifetime and removes it once analysis is done, so the service stays stateless.
+    """
+    size = 0
+    with dest.open("wb") as buffer:
+        while chunk := await file.read(_CHUNK_SIZE):
+            size += len(chunk)
+            buffer.write(chunk)
+    return size

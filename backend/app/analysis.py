@@ -44,9 +44,23 @@ class Flaw(BaseModel):
 
 
 class RejectionDetail(BaseModel):
-    """One specific reason a video was rejected. ``code`` maps to a frontend icon."""
+    """One specific reason a video was rejected. ``code`` maps to a frontend icon.
 
-    code: Literal["angle", "lighting", "no_golfer"]
+    The code set is kept in lockstep with the frontend ``ReasonCode`` union and
+    ``REASON_ICONS`` registry (``frontend/src/lib/analysis.ts``) and the
+    ``RejectionCode`` enum (``app.validation.result``); the frontend parser fails
+    closed on any code outside this set.
+    """
+
+    code: Literal[
+        "angle",
+        "lighting",
+        "no_golfer",
+        "unreadable",
+        "low_resolution",
+        "too_short",
+        "framing",
+    ]
     label: str
     title: str
 
@@ -117,10 +131,19 @@ _MOCK_REJECTION = RejectionReason(
 # Filename keywords → scenario, for demoable inference when no explicit scenario.
 _REJECT_HINTS = ("reject", "bad", "dark", "wrong", "angle", "blurry")
 _CLEAN_HINTS = ("clean", "good", "perfect", "pro", "ideal")
+_FLAWS_HINTS = ("flaws", "demo", "sample")
 
 
-def select_scenario(filename: str | None, scenario: Scenario | None) -> Scenario:
-    """Pick the mock scenario: explicit override wins, else infer from the filename."""
+def resolve_demo_scenario(
+    filename: str | None, scenario: Scenario | None
+) -> Scenario | None:
+    """Resolve the **demo override**, or ``None`` to run real validation.
+
+    An explicit ``scenario`` form field wins; otherwise a recognized filename
+    keyword forces a mock path so all three outcomes stay demoable on the
+    deployed URLs. When nothing matches, the caller runs the real M5 validation
+    gate instead of inferring a mock result.
+    """
     if scenario is not None:
         return scenario
 
@@ -129,7 +152,9 @@ def select_scenario(filename: str | None, scenario: Scenario | None) -> Scenario
         return Scenario.REJECTED
     if any(hint in name for hint in _CLEAN_HINTS):
         return Scenario.CLEAN
-    return Scenario.FLAWS
+    if any(hint in name for hint in _FLAWS_HINTS):
+        return Scenario.FLAWS
+    return None
 
 
 def build_response(scenario: Scenario) -> AnalyzeResponse:

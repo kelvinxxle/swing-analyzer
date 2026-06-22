@@ -79,6 +79,26 @@ describe("parseAnalyzeResponse", () => {
     expect(parsed.reason?.details).toHaveLength(1);
   });
 
+  it("accepts the M5 reason codes added in lockstep with the backend", () => {
+    for (const code of [
+      "unreadable",
+      "low_resolution",
+      "too_short",
+      "framing",
+    ]) {
+      const parsed = parseAnalyzeResponse({
+        status: "rejected",
+        flaws: [],
+        reason: {
+          headline: "Invalid Video Input Detected",
+          summary: "nope",
+          details: [{ code, label: "Reason 01", title: "t" }],
+        },
+      });
+      expect(parsed.reason?.details[0].code).toBe(code);
+    }
+  });
+
   it("rejects a reason detail with an unknown code", () => {
     expect(() =>
       parseAnalyzeResponse({

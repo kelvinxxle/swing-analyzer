@@ -1,8 +1,12 @@
 import type { ComponentType, SVGProps } from "react";
 import {
   BrightnessLowIcon,
+  ClockIcon,
+  GridIcon,
   PersonOffIcon,
+  ScanFrameIcon,
   VideoOffIcon,
+  WarningTriangleIcon,
 } from "@/components/icons";
 
 /**
@@ -21,8 +25,22 @@ export type Flaw = {
   fix: string;
 };
 
-/** A rejection icon code; resolved to a component via {@link REASON_ICONS}. */
-export type ReasonCode = "angle" | "lighting" | "no_golfer";
+/**
+ * A rejection icon code; resolved to a component via {@link REASON_ICONS}.
+ *
+ * This is a CLOSED set kept in lockstep with the backend `RejectionDetail.code`
+ * Literal (`backend/app/analysis.py`) and `RejectionCode` enum
+ * (`backend/app/validation/result.py`). `parseAnalyzeResponse` fails closed on
+ * any code outside it, so the two sides must change together.
+ */
+export type ReasonCode =
+  | "angle"
+  | "lighting"
+  | "no_golfer"
+  | "unreadable"
+  | "low_resolution"
+  | "too_short"
+  | "framing";
 
 export type RejectionReason = {
   code: ReasonCode;
@@ -50,6 +68,10 @@ export const REASON_ICONS: Record<
   angle: VideoOffIcon,
   lighting: BrightnessLowIcon,
   no_golfer: PersonOffIcon,
+  unreadable: WarningTriangleIcon,
+  low_resolution: GridIcon,
+  too_short: ClockIcon,
+  framing: ScanFrameIcon,
 };
 
 /** Where a given status routes in the one-shot flow. */
@@ -92,7 +114,15 @@ export function readAnalysis(): AnalyzeResponse | null {
   }
 }
 
-const REASON_CODES: ReasonCode[] = ["angle", "lighting", "no_golfer"];
+const REASON_CODES: ReasonCode[] = [
+  "angle",
+  "lighting",
+  "no_golfer",
+  "unreadable",
+  "low_resolution",
+  "too_short",
+  "framing",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

@@ -43,6 +43,17 @@ const REJECTED_RESPONSE = {
 
 const CLEAN_RESPONSE = { status: "no_major_flaws", flaws: [], reason: null };
 
+// A realistic M5 single-reason rejection using a code added this milestone.
+const SINGLE_REASON_REJECTION = {
+  status: "rejected",
+  flaws: [],
+  reason: {
+    headline: "Invalid Video Input Detected",
+    summary: "The video provided does not meet the guidelines.",
+    details: [{ code: "too_short", label: "Reason 01", title: "Clip too short" }],
+  },
+};
+
 async function stubAnalyze(page: Page, body: unknown) {
   // The browser now posts directly to ${NEXT_PUBLIC_API_URL}/analyze (defaults
   // to http://localhost:8000/analyze in CI). Intercept that to stay hermetic.
@@ -116,6 +127,22 @@ test.describe("M3 upload → analyze loop", () => {
     await expect(page.getByText(/angle too wide/i)).toBeVisible();
     await expect(page.getByText(/low lighting/i)).toBeVisible();
     await expect(page.getByText(/no golfer detected/i)).toBeVisible();
+
+    await page.getByRole("link", { name: /try again/i }).click();
+    await expect(page).toHaveURL(/\/upload$/);
+  });
+
+  test("upload → error rejection (single M5 reason) → try again", async ({
+    page,
+  }) => {
+    await stubAnalyze(page, SINGLE_REASON_REJECTION);
+    await selectVideo(page);
+
+    await expect(page).toHaveURL(/\/error$/, { timeout: 15_000 });
+    await expect(
+      page.getByRole("heading", { name: /analysis failed/i }),
+    ).toBeVisible();
+    await expect(page.getByText(/clip too short/i)).toBeVisible();
 
     await page.getByRole("link", { name: /try again/i }).click();
     await expect(page).toHaveURL(/\/upload$/);
