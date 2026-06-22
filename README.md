@@ -43,8 +43,10 @@ curl http://localhost:8000/health # → {"status":"ok"}
 Other checks: `ruff check .`, `mypy app`, `pytest`.
 
 `/analyze` runs a real **input-validation gate** before analysis — bad videos are
-rejected with a specific reason (flaw detection itself is still mock until M6).
-See [`docs/validation.md`](docs/validation.md).
+rejected with a specific reason. A passing video is then scored by the real
+**rule-based flaw detection engine**, which returns the top 2–3 flaws (or a valid
+"no major flaws" result). See [`docs/validation.md`](docs/validation.md) and
+[`docs/detection.md`](docs/detection.md).
 
 Run it as a container instead (matches production):
 

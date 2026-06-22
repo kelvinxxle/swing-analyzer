@@ -7,10 +7,12 @@ wire real logic into `/analyze`: a **validation gate runs before analysis**. A
 good video passes through; a bad one returns `{ status: "rejected", reason }` that
 renders on the existing Error screen.
 
-> **Scope:** M5 validates input only. **Flaw detection stays mock until M6.** A
-> video that passes the gate still returns the mock flaw result. The gate
-> (`app.validation.validate_video`) is the reusable building block M6 calls
-> before running real detection.
+> **Scope:** this doc covers the M5 input-validation gate. As of **M6**, a video
+> that passes the gate is handed to the **real rule-based detection engine**
+> (`app.detection.detect_flaws`) — see [`tech-stack.md`](./tech-stack.md). The gate
+> (`app.validation.validate_video`) is the reusable building block: it extracts the
+> pose series once and returns it, and the engine reuses that series (no second
+> pose pass).
 
 ## The gate
 
@@ -98,24 +100,27 @@ fails the capture guidelines can never be reported as good — not even with a
 "good"-named filename. The order is:
 
 1. Request guards (missing/empty file, non-`video/*` content type) → HTTP 400.
-2. **Dev lever (form field only):** `scenario=rejected` short-circuits to the
-   mock rejection screen. It forces a *failure*, so it can't mask a bad video,
-   and it is **not reachable via the user-controlled filename**.
+2. **Demo override (form field only):** an explicit `scenario` short-circuits to
+   a **canned demo screen** *before* the gate, so all three result screens stay
+   demoable on the live URLs: `scenario=rejected` → fixed rejection,
+   `scenario=clean` → fixed "no major flaws", `scenario=flaws` → fixed analyzed
+   result. These are dev levers reachable only via the form field, **never via
+   the user-controlled filename**, and a normal upload never sets one.
 3. **Real gate:** `validate_video(tmp_path)` runs (offloaded to a worker thread
    via `run_in_threadpool`, since it's CPU-bound OpenCV + MediaPipe). If it
    fails → return the specific rejection (→ Error screen). This cannot be
    bypassed by filename.
-4. **Only after the video passes**, a demo override chooses *which success
-   screen* to show — never whether the video succeeds:
-   - `scenario=clean`, or a clean-hinted filename (`clean`, `good`, `perfect`,
-     `pro`, `ideal`) → mock "no major flaws".
-   - otherwise → the mock **flaws** result (real detection lands in M6).
+4. **Only after the video passes**, the **real M6 detection engine**
+   (`app/detection/`) runs over the pose series that `validate_video` already
+   extracted (no second pose pass) and returns the genuine top-2–3 flaws, or a
+   valid `no_major_flaws` zero result. There is no filename inference and no mock
+   in the success path.
 
 Because the gate runs first, **you can no longer fake a rejection by filename on
 a good clip.** Demoing a rejection now requires either uploading a genuinely bad
 clip (dark / wrong-angle / no-golfer — real validation catches it) or using the
-explicit `scenario=rejected` dev lever. The success override only ever picks
-among *success* presentations for a video that genuinely passed.
+explicit `scenario=rejected` dev lever. A normal upload (no `scenario`) always
+runs the real gate and then the real engine.
 
 A file that claims `video/*` but won't decode is bad *content* (not a malformed
 request), so it returns the `unreadable` rejection on the Error screen. The
@@ -131,12 +136,20 @@ service stays stateless.
   and the decode/pose rejections (injected fake estimator).
 - `backend/tests/test_validation_reasons.py` — every code yields a well-formed
   reason and the code set stays in lockstep with the frontend.
-- `backend/tests/test_analyze.py` — the wired endpoint: the gate runs **before**
-  the success override (a bad clip with a `good`/`sample`-hinted filename is still
-  rejected — the key regression), the success override only picks among success
-  screens for a passing video, the `scenario=rejected` dev lever, and the real
-  gate rejecting `unreadable` / `low_resolution` / `lighting` / `too_short`
-  (cheap) and `no_golfer` (pose, via real MediaPipe on a human-free synthetic
-  clip), plus the 400 guards and ephemeral cleanup.
+- `backend/tests/test_analyze.py` — the wired endpoint: a `scenario` form field
+  short-circuits to its canned demo screen, the gate runs **before** the real
+  engine (a bad clip with a `good`/`sample`-hinted filename is still rejected —
+  the key regression), a passing video drives the **real detection engine**
+  (flawed series → `analyzed` with ranked flaws, clean series → `no_major_flaws`,
+  via a stubbed gate), the `scenario=rejected` dev lever, and the real gate
+  rejecting `unreadable` / `low_resolution` / `lighting` / `too_short` (cheap) and
+  `no_golfer` (pose, via real MediaPipe on a human-free synthetic clip), plus the
+  400 guards and ephemeral cleanup.
+- `backend/tests/test_detection_*.py` — the M6 engine in isolation over synthetic
+  pose series: each flaw rule scores high on a series engineered to exhibit it and
+  low on a clean series (`test_detection_rules.py`), coarse phase detection
+  (`test_detection_phases.py`), and ranking / top-3 cap / zero-result
+  `no_major_flaws` path (`test_detection_engine.py`). Real-clip threshold tuning
+  is deferred to M7 (golden fixtures).
 - `frontend/src/lib/analysis.test.ts`, `ReasonCard.test.tsx`, `e2e/smoke.spec.ts`
   — the new codes parse, render an icon, and route to the Error screen.
