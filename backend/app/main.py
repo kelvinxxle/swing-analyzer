@@ -10,9 +10,9 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated, TypeVar
 
+import anyio.to_thread
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -52,7 +52,11 @@ _MULTIPART_OVERHEAD_RATIO = 0.01  # or +1% of the cap, whichever is larger
 
 
 def _max_upload_bytes() -> int:
-    """Largest *file* we accept; ``_drain_to_path`` returns 413 over it (env ``MAX_UPLOAD_BYTES``)."""  # noqa: E501
+    """Largest *file* we accept before returning 413.
+
+    Bounds the raw FILE bytes (env ``MAX_UPLOAD_BYTES``); ``_drain_to_path``
+    aborts with a 413 once a stream exceeds it.
+    """
     raw = os.getenv("MAX_UPLOAD_BYTES")
     return int(raw) if raw else _DEFAULT_MAX_UPLOAD_BYTES
 
@@ -262,23 +266,27 @@ async def _run_bounded(func: Callable[..., _T], *args: object, deadline: float) 
     *combined* wall-clock by a single ``MAX_ANALYSIS_SECONDS`` budget rather than
     giving each stage a fresh budget. Offloading keeps the event loop responsive.
 
-    **Timeout semantics — honest about what 504 does and does not do.** On timeout
-    (or an already-elapsed deadline) the *client* gets a clean ``504`` promptly, but
-    the in-flight worker thread is **not** cancelled: ``asyncio.wait_for`` stops
-    awaiting ``run_in_threadpool``, and AnyIO shields the thread from cancellation,
-    so the already-dispatched ``func`` runs to completion in the background before
-    the threadpool slot frees. That is acceptable here because the CPU-bound pose
-    path is itself frame-bounded (``SamplingConfig.max_frames``), so the orphaned
-    work is finite — not an unbounded runaway. We deliberately avoid a heavyweight
-    process-pool/hard-kill for a hobby v1; the 504 keeps the request responsive
-    while the bounded worker finishes. Any other failure becomes a controlled
-    ``500`` — we never let an unexpected fault fall through to a silent wrong answer.
+    **Timeout semantics — a genuinely prompt 504.** On timeout (or an
+    already-elapsed deadline) the *client* gets a clean ``504`` promptly. AnyIO is
+    called with ``abandon_on_cancel=True``, so when ``asyncio.wait_for`` hits the
+    deadline it stops awaiting the worker immediately instead of being shielded
+    until the thread returns (the default ``run_sync`` shields the thread, which
+    would make ``wait_for`` block past the deadline — defeating the timeout). The
+    in-flight worker thread is **not** killed (no hard-kill, no process-pool); it
+    finishes its already-bounded work in the background. That is acceptable because
+    the CPU-bound pose path is itself frame-bounded (``SamplingConfig.max_frames``),
+    so the abandoned work is finite — not an unbounded runaway. Any other failure
+    becomes a controlled ``500`` — we never let an unexpected fault fall through to
+    a silent wrong answer.
     """
     remaining = deadline - asyncio.get_running_loop().time()
     if remaining <= 0:
         raise HTTPException(status_code=504, detail=_TIMEOUT_DETAIL)
     try:
-        return await asyncio.wait_for(run_in_threadpool(func, *args), timeout=remaining)
+        return await asyncio.wait_for(
+            anyio.to_thread.run_sync(func, *args, abandon_on_cancel=True),
+            timeout=remaining,
+        )
     except TimeoutError:
         raise HTTPException(status_code=504, detail=_TIMEOUT_DETAIL) from None
     except HTTPException:

@@ -340,22 +340,28 @@ def test_file_at_limit_passes_guard_while_oversized_still_413s(
     # scenario field) pushes the request body a little over the cap. The true
     # FILE-bytes cap is still enforced precisely by the streaming drain.
     import app.main as main
-    from app.validation.result import ValidationResult
+    from app.validation.reasons import build_rejection
+    from app.validation.result import RejectionCode, ValidationResult
 
     cap = 64 * 1024  # large enough that real multipart overhead is a tiny fraction
     monkeypatch.setattr(main, "_max_upload_bytes", lambda: cap)
     # Isolate the size guard from the CPU-bound gate: a passing file would need
-    # real footage, so stub the gate to a quick rejection (any non-413 proves the
-    # upload was accepted past the size guard).
+    # real footage, so stub the gate to a deterministic rejection. The 200
+    # "rejected" body proves the upload was accepted past the size guard and ran
+    # the real handler (not a transport-level 413).
+    rejection = build_rejection(RejectionCode.UNREADABLE)
     monkeypatch.setattr(
-        main, "validate_video", lambda *a, **k: (ValidationResult(), None)
+        main, "validate_video", lambda *a, **k: (ValidationResult(rejection), None)
     )
 
     # A file at *exactly* the limit, wrapped in multipart framing (Content-Length
     # slightly above the cap), is accepted past both the middleware and the drain.
     at_limit = {"file": ("clip.mp4", io.BytesIO(b"x" * cap), "video/mp4")}
     response = client.post("/analyze", files=at_limit)
-    assert response.status_code != 413, "a file exactly at the limit was wrongly rejected"
+    assert response.status_code == 200, "a file exactly at the limit was wrongly rejected"
+    body = response.json()
+    assert body["status"] == "rejected"
+    assert body["reason"]["details"][0]["code"] == RejectionCode.UNREADABLE.value
 
     # A file within the envelope but genuinely over the FILE cap still 413s — the
     # drain enforces the true file-bytes cap even though the middleware let it by.
@@ -373,10 +379,11 @@ def test_file_at_limit_passes_guard_while_oversized_still_413s(
 
 def test_analyze_times_out_slow_processing(monkeypatch: pytest.MonkeyPatch) -> None:
     # A near-zero budget + a gate that exceeds it → the request returns a clean
-    # 504 rather than pinning the event loop on the CPU-bound path. The worker
-    # thread is NOT force-killed (AnyIO shields it): the client gets the 504 while
-    # the already-dispatched, frame-bounded work finishes in the background. This
-    # test pins both halves of that honest contract.
+    # 504 rather than pinning the event loop on the CPU-bound path. With
+    # abandon_on_cancel=True the 504 is genuinely PROMPT: wait_for stops awaiting
+    # the worker at the deadline instead of being shielded until it returns. The
+    # worker thread is NOT force-killed, so the already-dispatched, frame-bounded
+    # work still finishes in the background. This test pins both halves.
     import threading
     import time
 
