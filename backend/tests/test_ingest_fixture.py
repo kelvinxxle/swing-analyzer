@@ -249,6 +249,34 @@ def test_resolve_target_ad_hoc_bucket() -> None:
     assert target.relative_path == "good/good-dtl-03.mp4"
 
 
+@pytest.mark.parametrize("name", ["../evil", "foo/bar", str(Path.cwd() / "evil")])
+def test_resolve_target_rejects_unsafe_name(name: str) -> None:
+    # Path-traversal guard: --name must be a simple filename stem.
+    with pytest.raises(IngestError, match=r"unsafe --name"):
+        resolve_target(clip_id=None, bucket="good", name=name, expect_flaw=None)
+
+
+def test_resolve_target_rejects_manifest_traversal() -> None:
+    # The manifest path is guarded too: a `file` that escapes the bucket fails
+    # loud before any filesystem write.
+    manifest = [
+        {
+            "id": "escape-01",
+            "bucket": "good",
+            "file": "../escape.mp4",
+            "expect": {"status": "no_major_flaws"},
+        }
+    ]
+    with pytest.raises(IngestError, match=r"manifest clip 'escape-01'.*outside"):
+        resolve_target(
+            clip_id="escape-01",
+            bucket=None,
+            name=None,
+            expect_flaw=None,
+            manifest=manifest,
+        )
+
+
 def test_resolve_target_rejects_generated_clip() -> None:
     with pytest.raises(IngestError, match="generated programmatically"):
         resolve_target(clip_id="bad-dark-01", bucket=None, name=None, expect_flaw=None)

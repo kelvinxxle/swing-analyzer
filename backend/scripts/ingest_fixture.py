@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,6 +113,38 @@ class Target:
         return GOLDEN_DIR / self.relative_path
 
 
+def _validate_ad_hoc_name(name: str) -> str:
+    stem = name[:-4] if name.endswith(".mp4") else name
+    separators = {"/", os.sep}
+    if os.altsep is not None:
+        separators.add(os.altsep)
+    if (
+        not stem
+        or Path(name).is_absolute()
+        or ".." in name
+        or any(separator in name for separator in separators)
+    ):
+        raise IngestError(
+            f"unsafe --name {name!r}: use a simple filename stem with no path "
+            "separators, '..', or absolute paths."
+        )
+    return stem
+
+
+def _ensure_target_stays_in_bucket(bucket: str, relative_path: str, *, source: str) -> None:
+    output_path = (GOLDEN_DIR / relative_path).resolve()
+    golden_root = GOLDEN_DIR.resolve()
+    bucket_root = (GOLDEN_DIR / BUCKET_DIRS[bucket]).resolve()
+    try:
+        output_path.relative_to(golden_root)
+        output_path.relative_to(bucket_root)
+    except ValueError as exc:
+        raise IngestError(
+            f"{source} path {relative_path!r} resolves outside the "
+            f"{BUCKET_DIRS[bucket]!r} golden fixture bucket."
+        ) from exc
+
+
 # --------------------------------------------------------------------------- #
 # Target resolution
 # --------------------------------------------------------------------------- #
@@ -162,6 +195,9 @@ def resolve_target(
                 f"clip {clip_id!r} has unknown bucket {entry_bucket!r}; expected one "
                 f"of {tuple(BUCKET_DIRS)}."
             )
+        _ensure_target_stays_in_bucket(
+            entry_bucket, file_rel, source=f"manifest clip {clip_id!r}"
+        )
         expect = entry.get("expect")
         expected_flaw = None
         reason_code = None
@@ -208,10 +244,12 @@ def resolve_target(
         )
     if expect_reason is not None:
         _validate_reason_code(expect_reason, source="--expect-reason")
-    stem = name[:-4] if name.endswith(".mp4") else name
+    stem = _validate_ad_hoc_name(name)
+    relative_path = f"{BUCKET_DIRS[bucket]}/{stem}.mp4"
+    _ensure_target_stays_in_bucket(bucket, relative_path, source=f"--name {name!r}")
     return Target(
         bucket=bucket,
-        relative_path=f"{BUCKET_DIRS[bucket]}/{stem}.mp4",
+        relative_path=relative_path,
         expected_flaw=expect_flaw,
         reason_code=expect_reason,
     )

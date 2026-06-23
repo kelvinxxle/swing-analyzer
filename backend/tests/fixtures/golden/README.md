@@ -67,7 +67,7 @@ requirements-dev.txt`):
 | `--start` / `--end` | Trim window in seconds (segment is capped at ~3s). |
 | `--fps` | Output fps cap (default 30; never exceeds the source fps). |
 | `--shorter-side` | Minimum normalized shorter side in px (default/min 480 — the gate floor). A smaller source is upscaled to this; a larger source keeps its native resolution. |
-| `--bucket` / `--name` | Ad-hoc target when not using a manifest clip id (`--bucket` takes the manifest vocab: `good`, `flaw`, `bad_input`). |
+| `--bucket` / `--name` | Ad-hoc target when not using a manifest clip id (`--bucket` takes the manifest vocab: `good`, `flaw`, `bad_input`). `--name` must be a simple filename stem — no path separators or `..` (writes are confined to the bucket dir). |
 | `--expect-flaw` | For ad-hoc `flaw` clips only (rejected with another `--bucket`): the catalog flaw id it should demonstrate. |
 | `--expect-reason` | For ad-hoc `bad_input` clips only (rejected with another `--bucket`): the rejection code the gate should return, validated against the backend `RejectionCode` enum. |
 | `--force` | Overwrite an existing clip at the target path. |
