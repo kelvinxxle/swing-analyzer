@@ -66,9 +66,10 @@ requirements-dev.txt`):
 |---|---|
 | `--start` / `--end` | Trim window in seconds (segment is capped at ~3s). |
 | `--fps` | Output fps cap (default 30; never exceeds the source fps). |
-| `--shorter-side` | Normalized shorter side in px (default/min 480 — the gate minimum). |
-| `--bucket` / `--name` | Ad-hoc target when not using a manifest clip id. |
-| `--expect-flaw` | For ad-hoc `flaws` clips: the catalog flaw id it should demonstrate. |
+| `--shorter-side` | Minimum normalized shorter side in px (default/min 480 — the gate floor). A smaller source is upscaled to this; a larger source keeps its native resolution. |
+| `--bucket` / `--name` | Ad-hoc target when not using a manifest clip id (`--bucket` takes the manifest vocab: `good`, `flaw`, `bad_input`). |
+| `--expect-flaw` | For ad-hoc `flaw` clips: the catalog flaw id it should demonstrate. |
+| `--expect-reason` | For ad-hoc `bad_input` clips: the rejection code the gate should return. |
 | `--force` | Overwrite an existing clip at the target path. |
 
 > The helper uses **OpenCV** (already a project dependency) for trim + re-encode,
