@@ -33,8 +33,8 @@ clips are git-ignored, so CI always runs the generated-only set.
 
 ## Bad-input buckets — no footage required
 `dark`, `too_short`, `low_resolution`, `no_golfer`, and `unreadable` are generated
-programmatically at test time (`tests/pose_helpers.build_bad_input_clip`), so they
-need no committed footage and always run.
+programmatically at test time (`backend/tests/pose_helpers.py`, imported as
+`pose_helpers.build_bad_input_clip`), so they need no committed footage and always run.
 
 ## Sourcing attempt (M7) — honest record
 Down-the-line, **flaw-labeled** golf footage under a redistribution-permitting

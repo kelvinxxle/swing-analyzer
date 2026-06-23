@@ -107,7 +107,7 @@ fails the capture guidelines can never be reported as good — not even with a
    result. These are dev levers reachable only via the form field, **never via
    the user-controlled filename**, and a normal upload never sets one.
 3. **Real gate:** `validate_video(tmp_path)` runs (offloaded to a worker thread
-   via `run_in_threadpool`, since it's CPU-bound OpenCV + MediaPipe). If it
+   via `anyio.to_thread.run_sync`, since it's CPU-bound OpenCV + MediaPipe). If it
    fails → return the specific rejection (→ Error screen). This cannot be
    bypassed by filename.
 4. **Only after the video passes**, the **real M6 detection engine**
