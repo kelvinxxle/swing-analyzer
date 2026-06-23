@@ -2,9 +2,15 @@
 
 This is the public entry point that replaces the M3 mock in ``/analyze``. It runs
 every catalog rule over the (already-extracted) pose series, keeps only flaws that
-clear their trigger, ranks them by score, and returns the **top 2–3** as
+clear their trigger, ranks them by score, and returns the **top 1–3** as
 prioritized :class:`~app.analysis.Flaw` objects — or a valid **"no major flaws"**
-result when nothing clears the bar. It never pads the list (PRD detection rule).
+result when the engine ran but nothing cleared the bar. It never pads the list
+(PRD detection rule).
+
+A swing the engine **could not analyze at all** (it can't be segmented, or the
+required landmarks are missing / too low-visibility) is a different outcome: it
+raises :class:`UnanalyzableSwingError` so the caller can fail loud rather than
+mislabel an un-analyzed swing as clean.
 """
 
 from __future__ import annotations
@@ -16,6 +22,21 @@ from app.detection.rules import FlawScore, build_context, score_all
 from app.pose.schema import PoseSeries
 
 
+class UnanalyzableSwingError(RuntimeError):
+    """The engine could not analyze the swing at all.
+
+    Raised when :func:`~app.detection.rules.build_context` cannot assemble a
+    context — e.g. the swing can't be segmented into phases, or the landmarks the
+    rules need are missing / below the visibility floor. This is **not** the same
+    as "the engine ran and found nothing" (a valid ``NO_MAJOR_FLAWS`` result): an
+    un-analyzed swing must never be reported as clean. The ``/analyze`` handler
+    maps this to a clean HTTP 500, consistent with the "gate passed but series is
+    None" internal-fault path. The M5 gate only guarantees core torso visibility +
+    angle/framing, so a torso-visible clip with unreadable wrists or too few usable
+    frames can pass validation and still land here.
+    """
+
+
 def detect_flaws(series: PoseSeries) -> tuple[AnalysisStatus, list[Flaw]]:
     """Detect the top catalog flaws in one swing's landmark series.
 
@@ -23,14 +44,24 @@ def detect_flaws(series: PoseSeries) -> tuple[AnalysisStatus, list[Flaw]]:
 
     * ``ANALYZED`` with 1–3 prioritized flaws when at least one clears its trigger
       (``priority`` 1 = highest score);
-    * ``NO_MAJOR_FLAWS`` with an empty list when none clear it — a valid result
-      (the list is never padded to hit a number).
+    * ``NO_MAJOR_FLAWS`` with an empty list when the engine ran but none cleared it
+      — a valid result (the list is never padded to hit a number).
+
+    Raises :class:`UnanalyzableSwingError` when the swing cannot be analyzed at all
+    (it can't be segmented or required landmarks are missing/low-visibility), so
+    the caller can fail loud instead of mislabeling it as a clean swing.
     """
     context = build_context(series)
     if context is None:
-        # Too little usable motion to analyze — treat as no major flaws rather
-        # than inventing findings. (The M5 gate has already cleared bad input.)
-        return AnalysisStatus.NO_MAJOR_FLAWS, []
+        # The swing couldn't be analyzed (un-segmentable, or required landmarks
+        # missing/low-visibility). Surface this as a distinct failure rather than
+        # inventing findings OR falsely reporting a clean swing — the M5 gate only
+        # guarantees core torso visibility + angle/framing, so an un-analyzable
+        # series can still reach here.
+        raise UnanalyzableSwingError(
+            "The swing could not be analyzed: it can't be segmented or required "
+            "landmarks are missing or too low-visibility."
+        )
 
     triggered = [score for score in score_all(context) if score.triggered]
     triggered.sort(key=_rank_key)

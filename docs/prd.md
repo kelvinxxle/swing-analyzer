@@ -3,7 +3,7 @@
 > **Why we're building it:** Intermediate amateurs know they have flaws but
 > can't self-diagnose. Give them precise, prioritized fixes — fast.
 
-**The one-line:** Upload one swing → get your top 2–3 flaws, each with a fix tip.
+**The one-line:** Upload one swing → get your top 1–3 flaws, each with a fix tip.
 
 ---
 
@@ -14,7 +14,7 @@
 | **User** | Intermediate amateurs working on specific flaws |
 | **Input** | 1 swing, 1 prescribed angle, simple upload guidelines |
 | **Analysis** | Auto-detects the main flaws (no user focus picker) |
-| **Output** | Top 2–3 flaws, each with a fix tip |
+| **Output** | Top 1–3 flaws, each with a fix tip |
 | **Medium** | Text only |
 | **Session** | One-shot: upload → feedback, no account |
 
@@ -30,9 +30,11 @@
 - **Inclusion rule:** a flaw qualifies *only* if it's **visibly detectable from
   our one prescribed angle.** If our camera angle can't see it, it's not in the
   catalog.
-- **Clean / few flaws:** if fewer than 2–3 catalog flaws are found, say
-  **"no major flaws detected" and stop.** Never pad the list to hit a number;
-  returning zero flaws is a valid result.
+- **Clean swing — zero flaws is a valid result:** `analyzed` returns the **1–3**
+  flaws that triggered (the top of however many fired, capped at 3) — **a single
+  triggered flaw is a valid analyzed result, not a near-miss.** Only when **zero**
+  catalog flaws trigger do we say **"no major flaws detected" and stop.** Never pad
+  the list to hit a number, and never require a second flaw to report the first.
 - **Bad input:** if the video doesn't meet guidelines (wrong angle, no clear
   swing, too dark), **reject with a specific reason and ask for a re-upload.**
   Do not best-effort analyze a bad video.
@@ -52,7 +54,7 @@
   unproven core.*
 - **Not "upload anything."** One swing, one prescribed angle only.
   *Why: consistent input is what makes auto-detection reliable enough to trust.*
-- **Not a full swing report.** Top 2–3 flaws only, never an exhaustive breakdown.
+- **Not a full swing report.** Top 1–3 flaws only (capped at 3), never an exhaustive breakdown.
   *Why: intermediate players need priorities, not a list they'll ignore.*
 - **Not a Q&A coach.** No "check my hip rotation" requests.
   *Why: forces us to prove auto-detection works before adding user steering.*

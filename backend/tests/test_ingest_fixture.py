@@ -287,6 +287,39 @@ def test_resolve_target_unknown_id() -> None:
         resolve_target(clip_id="does-not-exist", bucket=None, name=None, expect_flaw=None)
 
 
+def test_evaluate_clip_handles_unanalyzable_series(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A degenerate clip can clear the gate yet leave the engine unable to
+    # segment the swing (build_context returns None for any of several reasons).
+    # The helper must print a clean verdict — surfacing the actual exception
+    # text — instead of letting the traceback escape.
+    import scripts.ingest_fixture as mod
+    from app.detection import UnanalyzableSwingError
+    from app.validation.result import ValidationResult
+
+    def _passed_gate(_path: Path) -> tuple[ValidationResult, object]:
+        return ValidationResult(), object()
+
+    def _raise(_series: object) -> tuple[object, list[object]]:
+        raise UnanalyzableSwingError("could not segment swing")
+
+    monkeypatch.setattr(mod, "validate_video", _passed_gate)
+    monkeypatch.setattr(mod, "detect_flaws", _raise)
+
+    target = Target(
+        bucket="good",
+        relative_path="good/good-dtl-99.mp4",
+        expected_flaw=None,
+        max_priority=3,
+    )
+
+    assert evaluate_clip(Path("unused.mp4"), target) is False
+    out = capsys.readouterr().out
+    assert "NOT USABLE" in out
+    assert "could not segment swing" in out
+
+
 def test_main_is_idempotent_and_refuses_overwrite(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
