@@ -137,6 +137,15 @@ def test_pose_no_golfer_takes_priority_over_angle() -> None:
     assert check_pose(_series(frames)) is RejectionCode.NO_GOLFER
 
 
+def test_pose_rejects_too_few_analyzable_frames() -> None:
+    # A golfer is clearly present (all frames detected) but there are fewer than
+    # the engine's frame floor, so the swing can't be segmented. The gate rejects
+    # it as too_short here rather than letting the engine 500 downstream.
+    n = T.MIN_ANALYZABLE_DETECTED_FRAMES - 1
+    frames = [_frame(i, _down_the_line_landmarks()) for i in range(n)]
+    assert check_pose(_series(frames)) is RejectionCode.TOO_SHORT
+
+
 def test_thresholds_are_sane() -> None:
     assert 0.0 < T.MIN_DETECTED_FRAME_RATIO <= 1.0
     assert 0.0 < T.MAX_OUT_OF_FRAME_RATIO <= 1.0

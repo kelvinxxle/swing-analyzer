@@ -25,7 +25,9 @@ from __future__ import annotations
 MIN_LANDMARK_VISIBILITY = 0.5
 
 # A swing needs at least this many detected frames to be analyzable at all. The
-# M5 gate already guarantees ≥50% detection, so this is a defensive floor.
+# M5 gate mirrors this floor to reject low-frame captures (as too_short) before
+# the engine, so keep this defensive check for any internal caller that bypasses
+# the gate.
 MIN_DETECTED_FRAMES = 6
 
 # Fraction of the (detected) series treated as the "address" baseline window,

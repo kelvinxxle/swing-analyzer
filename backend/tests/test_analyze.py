@@ -151,9 +151,10 @@ def test_flaws_scenario_cannot_mask_a_bad_clip() -> None:
 
 
 def test_analyze_passing_gate_without_series_fails_loud() -> None:
-    # Defensive P? fix: if the gate reports 'passed' but hands back no series
-    # (an internal pipeline fault), the endpoint must surface a 500 rather than
-    # silently reporting a clean swing.
+    # Internal-invariant guard: if an internal gate bug ever reports 'passed' but
+    # hands back no series (a pipeline fault that should never happen on a real
+    # upload — the gate now rejects low-frame clips as too_short up front), the
+    # endpoint must surface a 500 rather than silently reporting a clean swing.
     import app.main as main
     from app.validation.result import ValidationResult
 
@@ -173,11 +174,12 @@ def test_analyze_passing_gate_without_series_fails_loud() -> None:
 def test_analyze_unanalyzable_series_is_a_clean_500(
     stub_gate: Callable[[PoseSeries], None],
 ) -> None:
-    # The gate passes and hands back a series the engine CANNOT analyze (too few
-    # frames to segment a swing). This must surface as a clean 500 — never a
-    # falsely-clean no_major_flaws — consistent with the "passed but no series"
-    # fault above. Guards the M5 property: a torso-visible clip with unreadable
-    # wrists / too few usable frames can pass the gate and still reach here.
+    # Internal-invariant guard: if an internal gate bug ever hands back a series
+    # the engine cannot analyze (too few frames to segment a swing), this must
+    # surface as a clean 500 — never a falsely-clean no_major_flaws — consistent
+    # with the "passed but no series" fault above. On a real upload the gate now
+    # rejects such low-frame clips as too_short before the engine is reached, so
+    # this path is a should-never-happen safety net, not a normal user path.
     from app.detection.thresholds import MIN_DETECTED_FRAMES
 
     stub_gate(H.make_swing(n=MIN_DETECTED_FRAMES - 1))
@@ -187,6 +189,33 @@ def test_analyze_unanalyzable_series_is_a_clean_500(
     assert body["detail"]
     # It must NOT have been reported as a clean swing.
     assert body.get("status") != "no_major_flaws"
+
+
+def test_analyze_real_gate_rejects_too_few_analyzable_frames(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # End-to-end through the REAL gate logic: a clip that clears the cheap checks
+    # and shows a golfer but has too few detected frames for the engine to segment
+    # is rejected as too_short (HTTP 200 / rejected), so the user never sees a 500.
+    # A fake estimator stands in for MediaPipe (a synthetic clip has no real human),
+    # so the real check_pose frame-floor is what does the rejecting.
+    from pose_helpers import FakePoseEstimator
+
+    import app.main as main
+    from app.validation import validate_video as real_validate
+
+    def _validate_with_fake(path: object) -> object:
+        return real_validate(path, estimator=FakePoseEstimator(detect=True))  # type: ignore[arg-type]
+
+    monkeypatch.setattr(main, "validate_video", _validate_with_fake)
+    files = _clip_upload(
+        tmp_path / "sparse.mp4", frames=5, fps=5.0, width=720, height=1280, background=128
+    )
+    response = client.post("/analyze", files=files)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "rejected"
+    assert _reason_code(body) == "too_short"
 
 
 def test_analyze_rejected_scenario_is_a_single_reason_dev_lever() -> None:

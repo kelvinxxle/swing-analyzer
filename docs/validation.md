@@ -79,8 +79,9 @@ never test angle/framing when there's no golfer.
 4. `lighting` — mean luma over `BRIGHTNESS_SAMPLE_FRAMES` evenly-spaced frames `< MIN_MEAN_LUMA`.
 5. *(extract `PoseSeries` once)*
 6. `no_golfer` — detected-frame ratio `< MIN_DETECTED_FRAME_RATIO`, or mean visibility of the core torso landmarks `< MIN_MEAN_VISIBILITY`.
-7. `angle` — mean normalized shoulder span `|left.x − right.x|` over detected frames `> MAX_SHOULDER_SPAN_X` (down-the-line keeps the shoulders nearly in line with the camera, so they overlap in x; a wide/face-on angle spreads them).
-8. `framing` — fraction of detected frames where a key landmark (nose, wrists, ankles, feet) sits outside `[−OUT_OF_FRAME_TOL, 1 + OUT_OF_FRAME_TOL]` `> MAX_OUT_OF_FRAME_RATIO`.
+7. `too_short` — fewer than `MIN_ANALYZABLE_DETECTED_FRAMES` detected frames. A golfer is present but the capture is too sparse for the M6 phase detector to segment the swing, so we reject here (as `too_short`) rather than let the engine fail downstream. This floor is an alias of the engine's `MIN_DETECTED_FRAMES`, so validation and detection stay aligned.
+8. `angle` — mean normalized shoulder span `|left.x − right.x|` over detected frames `> MAX_SHOULDER_SPAN_X` (down-the-line keeps the shoulders nearly in line with the camera, so they overlap in x; a wide/face-on angle spreads them).
+9. `framing` — fraction of detected frames where a key landmark (nose, wrists, ankles, feet) sits outside `[−OUT_OF_FRAME_TOL, 1 + OUT_OF_FRAME_TOL]` `> MAX_OUT_OF_FRAME_RATIO`.
 
 Unknown metadata (missing dimensions/duration) is treated as "can't tell" and
 never causes a false rejection.
@@ -121,7 +122,10 @@ fails the capture guidelines can never be reported as good — not even with a
      (`app/detection/`) runs over the pose series that `validate_video` already
      extracted (no second pose pass) and returns the genuine top-1–3 flaws, or a
      valid `no_major_flaws` zero result. There is no filename inference and no mock
-     in the success path.
+     in the success path. Because the gate already rejected any capture with fewer
+     than `MIN_ANALYZABLE_DETECTED_FRAMES` analyzable frames (as `too_short`), the
+     engine's own "cannot analyze" guard (`UnanalyzableSwingError` → HTTP 500) is a
+     true should-never-happen invariant for a real upload, not a user-facing path.
 
 Because the gate runs first, **you can no longer fake a rejection by filename on
 a good clip.** Demoing a rejection now requires either uploading a genuinely bad

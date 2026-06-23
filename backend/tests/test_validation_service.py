@@ -84,6 +84,20 @@ def test_validate_rejects_no_golfer(tmp_path: Path) -> None:
     assert series is not None  # the pose pass ran
 
 
+def test_validate_rejects_too_few_analyzable_frames(tmp_path: Path) -> None:
+    # Clears every cheap check (1.0s, bright, big enough) and the golfer is
+    # detected, but there are too few frames for the engine to segment the swing.
+    # The gate rejects it as too_short before detection, so the user gets a clean
+    # 200/rejected instead of a downstream engine 500.
+    sparse = make_synthetic_clip(
+        tmp_path / "sparse.mp4", frames=5, fps=5.0, width=720, height=1280, background=128
+    )
+    result, series = validate_video(sparse, estimator=FakePoseEstimator(detect=True))
+
+    assert result.rejection is not None
+    assert result.rejection.details[0].code == RejectionCode.TOO_SHORT.value
+
+
 def test_validate_rejects_unreadable_file(tmp_path: Path) -> None:
     not_a_video = tmp_path / "upload"
     not_a_video.write_bytes(b"\x00\x01\x02 not really a video")

@@ -132,6 +132,12 @@ def check_pose(series: PoseSeries) -> RejectionCode | None:
     no_golfer = _check_no_golfer(series)
     if no_golfer is not None:
         return no_golfer
+    # The engine needs a minimum number of detected frames to segment the swing.
+    # Reject a too-sparse capture here (as too_short) so the user gets a clear
+    # 200/rejected rather than a downstream 500 from the engine. Mirrors the
+    # engine's MIN_DETECTED_FRAMES floor (aliased in thresholds).
+    if len(series.detected_frames) < T.MIN_ANALYZABLE_DETECTED_FRAMES:
+        return RejectionCode.TOO_SHORT
     # Angle / framing are only meaningful once a golfer is reliably present.
     if _check_angle(series) is not None:
         return RejectionCode.ANGLE
