@@ -37,11 +37,36 @@ _CHUNK_SIZE = 1024 * 1024  # 1 MiB
 _DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # matches the 50MB the UI advertises
 _DEFAULT_MAX_ANALYSIS_SECONDS = 60.0
 
+# The cap (``MAX_UPLOAD_BYTES``) bounds the raw *FILE* bytes — that is what the
+# frontend measures (``file.size``) before allowing an upload. But the pre-parse
+# guard only sees the request's ``Content-Length``, which is the whole multipart
+# body: the file part plus boundary delimiters, per-part headers, and any other
+# form fields (e.g. ``scenario``). That framing adds a small, file-size-independent
+# overhead, so a file at *exactly* the advertised limit yields a Content-Length a
+# little above the cap. Without headroom the pre-parse guard would wrongly 413 a
+# legitimate max-size file. Tolerate a bounded envelope above the cap here; the
+# streaming chunk-abort in ``_drain_to_path`` still enforces the true FILE-bytes
+# cap precisely, so this only affects the up-front Content-Length check.
+_MULTIPART_OVERHEAD_FLOOR = 64 * 1024  # 64 KiB fixed headroom for framing
+_MULTIPART_OVERHEAD_RATIO = 0.01  # or +1% of the cap, whichever is larger
+
 
 def _max_upload_bytes() -> int:
-    """Largest upload we accept before returning 413 (env ``MAX_UPLOAD_BYTES``)."""
+    """Largest *file* we accept; ``_drain_to_path`` returns 413 over it (env ``MAX_UPLOAD_BYTES``)."""  # noqa: E501
     raw = os.getenv("MAX_UPLOAD_BYTES")
     return int(raw) if raw else _DEFAULT_MAX_UPLOAD_BYTES
+
+
+def _content_length_ceiling(max_bytes: int) -> int:
+    """Largest request ``Content-Length`` the pre-parse guard tolerates.
+
+    This is the FILE cap plus a bounded multipart-framing envelope — **not** a
+    relaxation of the real cap. ``_drain_to_path`` still aborts at exactly
+    ``max_bytes`` of FILE content, so the envelope only prevents a legitimate
+    file at the limit from being rejected before its body is even read.
+    """
+    margin = max(_MULTIPART_OVERHEAD_FLOOR, int(max_bytes * _MULTIPART_OVERHEAD_RATIO))
+    return max_bytes + margin
 
 
 def _max_analysis_seconds() -> float:
@@ -94,6 +119,11 @@ async def _enforce_upload_cap(
 
     Registered before the CORS middleware so CORS remains the outermost layer and
     this 413 still carries the CORS headers a browser needs to read it.
+
+    The check compares ``Content-Length`` against a small *envelope* above the cap
+    (``_content_length_ceiling``) rather than the cap itself, so multipart framing
+    overhead can't wrongly reject a file that is exactly at the advertised limit;
+    the precise FILE-bytes cap is still enforced while draining the body.
     """
     if request.method == "POST" and request.url.path == "/analyze":
         declared = request.headers.get("content-length")
@@ -103,7 +133,7 @@ async def _enforce_upload_cap(
             except ValueError:
                 length = -1
             max_bytes = _max_upload_bytes()
-            if length > max_bytes:
+            if length > _content_length_ceiling(max_bytes):
                 return JSONResponse(
                     status_code=413, content={"detail": _too_large_detail(max_bytes)}
                 )
@@ -230,11 +260,19 @@ async def _run_bounded(func: Callable[..., _T], *args: object, deadline: float) 
     ``deadline`` is an absolute ``loop.time()`` instant computed once for the whole
     request, so chaining the gate and the engine through this helper bounds their
     *combined* wall-clock by a single ``MAX_ANALYSIS_SECONDS`` budget rather than
-    giving each stage a fresh budget. Offloading keeps the event loop responsive;
-    on timeout (or an already-elapsed deadline) we surface a clean ``504`` (the
-    worker thread can't be force-killed, but the request returns promptly). Any
-    other failure becomes a controlled ``500`` — we never let an unexpected fault
-    fall through to a silent wrong answer.
+    giving each stage a fresh budget. Offloading keeps the event loop responsive.
+
+    **Timeout semantics — honest about what 504 does and does not do.** On timeout
+    (or an already-elapsed deadline) the *client* gets a clean ``504`` promptly, but
+    the in-flight worker thread is **not** cancelled: ``asyncio.wait_for`` stops
+    awaiting ``run_in_threadpool``, and AnyIO shields the thread from cancellation,
+    so the already-dispatched ``func`` runs to completion in the background before
+    the threadpool slot frees. That is acceptable here because the CPU-bound pose
+    path is itself frame-bounded (``SamplingConfig.max_frames``), so the orphaned
+    work is finite — not an unbounded runaway. We deliberately avoid a heavyweight
+    process-pool/hard-kill for a hobby v1; the 504 keeps the request responsive
+    while the bounded worker finishes. Any other failure becomes a controlled
+    ``500`` — we never let an unexpected fault fall through to a silent wrong answer.
     """
     remaining = deadline - asyncio.get_running_loop().time()
     if remaining <= 0:
