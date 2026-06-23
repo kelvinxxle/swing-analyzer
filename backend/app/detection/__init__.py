@@ -3,7 +3,7 @@
 Rule-based geometric flaw detection over the M4 :class:`~app.pose.schema.PoseSeries`
 — no ML, no dataset. Scores a closed catalog of five flaws that are visibly
 detectable from the prescribed down-the-line angle, ranks them, and returns the
-top 2–3 with a fix tip each (or a valid "no major flaws" result).
+top 1–3 with a fix tip each (or a valid "no major flaws" result).
 
 This is the engine the ``/analyze`` endpoint runs after the M5 validation gate
 passes, reusing the series that gate already extracted.

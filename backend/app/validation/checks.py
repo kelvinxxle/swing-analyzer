@@ -22,6 +22,7 @@ from typing import Any
 import cv2
 import numpy.typing as npt
 
+from app.detection.geometry import pair_midpoint
 from app.pose.schema import LandmarkName, PoseSeries
 from app.validation import thresholds as T
 from app.validation.result import RejectionCode
@@ -141,9 +142,29 @@ def check_pose(series: PoseSeries) -> RejectionCode | None:
     # Angle / framing are only meaningful once a golfer is reliably present.
     if _check_angle(series) is not None:
         return RejectionCode.ANGLE
+    # The engine's phase detector derives address/top/impact from hand height,
+    # which is only usable when both wrists meet the engine visibility floor.
+    # A torso-only detection is a framed golfer, but not a fully framed swing,
+    # so report it as framing rather than no_golfer.
+    if _usable_wrist_frame_count(series) < T.MIN_ANALYZABLE_WRIST_FRAMES:
+        return RejectionCode.FRAMING
     if _check_framing(series) is not None:
         return RejectionCode.FRAMING
     return None
+
+
+def _usable_wrist_frame_count(series: PoseSeries) -> int:
+    return sum(
+        1
+        for frame in series.detected_frames
+        if pair_midpoint(
+            frame,
+            LandmarkName.LEFT_WRIST,
+            LandmarkName.RIGHT_WRIST,
+            T.MIN_ANALYZABLE_LANDMARK_VISIBILITY,
+        )
+        is not None
+    )
 
 
 def _check_no_golfer(series: PoseSeries) -> RejectionCode | None:

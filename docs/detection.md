@@ -117,12 +117,14 @@ short series and that M7 will harden.
    threadpool) over the returned series and produces the real flaws or the zero
    result. If the gate reports `passed` but returns no series, **or** hands back a
    series the engine cannot analyze (`UnanalyzableSwingError`), the handler raises
-   a **500** rather than silently reporting a clean swing. Because the gate now
-   rejects any capture with fewer than `MIN_DETECTED_FRAMES` analyzable frames up
-   front (as `too_short`; see [validation](./validation.md)), these 500s are a true
-   should-never-happen invariant for a real upload, not a user-facing path —
-   `UnanalyzableSwingError` stays as a defensive guard for an internal caller that
-   bypasses the gate.
+   a **500** rather than silently reporting a clean swing. The gate now rejects the
+   **known, user-correctable** causes up front (as 200/rejected; see
+   [validation](./validation.md)): too few analyzable frames → `too_short`, and
+   unreadable hands/wrists → `framing`. So these 500s should now be **rare** rather
+   than an absolute invariant — a genuinely degenerate capture can still trip
+   `UnanalyzableSwingError` (e.g. no address frame has a usable stature scale, from
+   nose+ankles or shoulders+hips), and the guard also still covers any internal
+   caller that bypasses the gate.
 
 There is **no filename inference** and **no mock in the success path**. The
 `Flaw` / `AnalyzeResponse` wire shapes are unchanged, so the frontend `/results`

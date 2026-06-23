@@ -218,6 +218,51 @@ def test_analyze_real_gate_rejects_too_few_analyzable_frames(
     assert _reason_code(body) == "too_short"
 
 
+def test_analyze_real_gate_rejects_unreadable_wrists_as_framing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # End-to-end through the REAL gate logic: a clip where the torso is visible
+    # but both wrists are below the engine's visibility floor across the clip. The
+    # phase detector can't read hand height to segment the swing, so the gate
+    # rejects it as framing (HTTP 200 / rejected) — it never reaches the engine's
+    # 500. A torso-visible-but-unreadable-wrists estimator stands in for MediaPipe.
+    import app.main as main
+    from app.pose.schema import LANDMARK_ORDER, Landmark, LandmarkName
+    from app.validation import validate_video as real_validate
+
+    class _UnreadableWristEstimator:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.closed = False
+
+        def estimate(self, frame_rgb: object) -> dict[LandmarkName, Landmark]:
+            self.calls += 1
+            landmarks = {
+                name: Landmark(x=0.5, y=0.5, z=0.0, visibility=0.9) for name in LANDMARK_ORDER
+            }
+            landmarks[LandmarkName.LEFT_SHOULDER] = Landmark(x=0.50, y=0.4, z=0.0, visibility=0.9)
+            landmarks[LandmarkName.RIGHT_SHOULDER] = Landmark(x=0.55, y=0.4, z=0.0, visibility=0.9)
+            landmarks[LandmarkName.LEFT_WRIST] = Landmark(x=0.5, y=0.6, z=0.0, visibility=0.1)
+            landmarks[LandmarkName.RIGHT_WRIST] = Landmark(x=0.5, y=0.6, z=0.0, visibility=0.1)
+            return landmarks
+
+        def close(self) -> None:
+            self.closed = True
+
+    def _validate_with_fake(path: object) -> object:
+        return real_validate(path, estimator=_UnreadableWristEstimator())  # type: ignore[arg-type]
+
+    monkeypatch.setattr(main, "validate_video", _validate_with_fake)
+    files = _clip_upload(
+        tmp_path / "torso_only.mp4", frames=60, fps=30.0, width=720, height=1280, background=128
+    )
+    response = client.post("/analyze", files=files)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "rejected"
+    assert _reason_code(body) == "framing"
+
+
 def test_analyze_rejected_scenario_is_a_single_reason_dev_lever() -> None:
     # The dev lever forces the rejection screen with one specific reason,
     # consistent with the real gate (no longer the legacy 3-detail payload).
