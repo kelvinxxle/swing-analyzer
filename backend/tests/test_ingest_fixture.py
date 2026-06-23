@@ -181,13 +181,63 @@ def test_resolve_target_ad_hoc_bad_input_reason() -> None:
 
 
 def test_resolve_target_rejects_unknown_reason() -> None:
-    with pytest.raises(IngestError, match="not a rejection code"):
+    with pytest.raises(IngestError, match=r"not a rejection code; choose from"):
         resolve_target(
             clip_id=None,
             bucket="bad_input",
             name="x",
             expect_flaw=None,
             expect_reason="not-a-code",
+        )
+
+
+def test_resolve_target_rejects_manifest_bogus_reason_code() -> None:
+    # Finding 1: a typo'd reason_code in the manifest must fail loud (naming the
+    # clip and listing valid codes) instead of silently propagating.
+    manifest = [
+        {
+            "id": "bad-typo-01",
+            "bucket": "bad_input",
+            "file": "bad/typo-01.mp4",
+            "expect": {"status": "rejected", "reason_code": "typo"},
+        }
+    ]
+    with pytest.raises(
+        IngestError, match=r"bad-typo-01.*reason_code 'typo' is not a rejection code"
+    ):
+        resolve_target(
+            clip_id="bad-typo-01",
+            bucket=None,
+            name=None,
+            expect_flaw=None,
+            manifest=manifest,
+        )
+
+
+@pytest.mark.parametrize("bucket", ["good", "bad_input"])
+def test_resolve_target_expect_flaw_is_bucket_scoped(bucket: str) -> None:
+    # Finding 2: --expect-flaw only makes sense for the 'flaw' bucket.
+    with pytest.raises(IngestError, match=r"--expect-flaw is only valid with --bucket 'flaw'"):
+        resolve_target(
+            clip_id=None,
+            bucket=bucket,
+            name="x",
+            expect_flaw=_SAMPLE_FLAW_ID,
+        )
+
+
+@pytest.mark.parametrize("bucket", ["good", "flaw"])
+def test_resolve_target_expect_reason_is_bucket_scoped(bucket: str) -> None:
+    # Finding 2: --expect-reason only makes sense for the 'bad_input' bucket.
+    with pytest.raises(
+        IngestError, match=r"--expect-reason is only valid with --bucket 'bad_input'"
+    ):
+        resolve_target(
+            clip_id=None,
+            bucket=bucket,
+            name="x",
+            expect_flaw=None,
+            expect_reason="angle",
         )
 
 

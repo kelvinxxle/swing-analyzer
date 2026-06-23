@@ -88,6 +88,15 @@ def _flaw_id_for_title(title: str) -> str:
     return flaw_id
 
 
+def _validate_reason_code(reason_code: str, *, source: str) -> str:
+    if reason_code not in _ALL_REASON_CODES:
+        raise IngestError(
+            f"{source} reason_code {reason_code!r} is not a rejection code; choose from "
+            f"{sorted(_ALL_REASON_CODES)}."
+        )
+    return reason_code
+
+
 @dataclass(frozen=True)
 class Target:
     """Where a clip should land and what it is expected to demonstrate."""
@@ -166,7 +175,9 @@ def resolve_target(
                 max_priority = mp
             rc = expect.get("reason_code")
             if isinstance(rc, str):
-                reason_code = rc
+                reason_code = _validate_reason_code(
+                    rc, source=f"manifest clip {clip_id!r}"
+                )
         return Target(
             bucket=entry_bucket,
             relative_path=file_rel,
@@ -181,16 +192,22 @@ def resolve_target(
         )
     if bucket not in BUCKET_DIRS:
         raise IngestError(f"--bucket must be one of {tuple(BUCKET_DIRS)}, got {bucket!r}.")
+    if expect_flaw is not None and bucket != "flaw":
+        raise IngestError(
+            f"--expect-flaw is only valid with --bucket 'flaw'; got --bucket {bucket!r}."
+        )
+    if expect_reason is not None and bucket != "bad_input":
+        raise IngestError(
+            "--expect-reason is only valid with --bucket 'bad_input'; got "
+            f"--bucket {bucket!r}."
+        )
     if expect_flaw is not None and expect_flaw not in _ALL_FLAW_IDS:
         raise IngestError(
             f"--expect-flaw {expect_flaw!r} is not a catalog flaw; choose from "
             f"{sorted(_ALL_FLAW_IDS)}."
         )
-    if expect_reason is not None and expect_reason not in _ALL_REASON_CODES:
-        raise IngestError(
-            f"--expect-reason {expect_reason!r} is not a rejection code; choose from "
-            f"{sorted(_ALL_REASON_CODES)}."
-        )
+    if expect_reason is not None:
+        _validate_reason_code(expect_reason, source="--expect-reason")
     stem = name[:-4] if name.endswith(".mp4") else name
     return Target(
         bucket=bucket,
