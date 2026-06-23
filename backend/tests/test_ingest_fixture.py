@@ -94,8 +94,9 @@ def test_evaluate_clip_handles_unanalyzable_series(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # A degenerate clip can clear the gate yet leave the engine unable to
-    # segment the swing (no usable stature scale in any address frame). The
-    # helper must print a clean verdict instead of letting the traceback escape.
+    # segment the swing (build_context returns None for any of several reasons).
+    # The helper must print a clean verdict — surfacing the actual exception
+    # text — instead of letting the traceback escape.
     import scripts.ingest_fixture as mod
     from app.detection import UnanalyzableSwingError
     from app.validation.result import ValidationResult
@@ -104,7 +105,7 @@ def test_evaluate_clip_handles_unanalyzable_series(
         return ValidationResult(), object()
 
     def _raise(_series: object) -> tuple[object, list[object]]:
-        raise UnanalyzableSwingError("no usable stature scale")
+        raise UnanalyzableSwingError("could not segment swing")
 
     monkeypatch.setattr(mod, "validate_video", _passed_gate)
     monkeypatch.setattr(mod, "detect_flaws", _raise)
@@ -117,7 +118,9 @@ def test_evaluate_clip_handles_unanalyzable_series(
     )
 
     assert evaluate_clip(Path("unused.mp4"), target) is False
-    assert "NOT USABLE" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "NOT USABLE" in out
+    assert "could not segment swing" in out
 
 
 def test_main_is_idempotent_and_refuses_overwrite(

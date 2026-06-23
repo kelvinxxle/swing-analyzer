@@ -349,11 +349,10 @@ def evaluate_clip(path: Path, target: Target) -> bool:
 
     try:
         status, flaws = detect_flaws(series)
-    except UnanalyzableSwingError:
+    except UnanalyzableSwingError as exc:
         print(
             "  verdict: NOT USABLE — clip cleared the gate but the swing couldn't be "
-            "segmented (degenerate capture: no usable stature scale in any address "
-            "frame). Re-trim with the full body in frame."
+            f"segmented ({exc}). Re-trim with the full body in frame."
         )
         return False
     print(f"  status:  {status.value}")
