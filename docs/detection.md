@@ -10,9 +10,14 @@
 A passing upload is handed the `PoseSeries` that `validate_video` returns (no
 second pose pass). `detection.detect_flaws(series)` runs every catalog rule,
 scores each flaw `0–1`, keeps only those above their trigger, ranks by score, and
-returns the **top 2–3** as priority-ordered `Flaw`s — or `no_major_flaws` with an
-empty list when none clear the bar. **The list is never padded; zero flaws is a
-valid result** (per the PRD detection boundary).
+returns the **top 1–3** as priority-ordered `Flaw`s (the top of however many
+triggered, capped at 3) — or `no_major_flaws` with an empty list when **zero**
+flaws clear the bar. **One triggered flaw is a valid `analyzed` result**; the list
+is never padded, and zero flaws is itself a valid result (per the PRD detection
+boundary). A swing the engine **cannot analyze at all** (un-segmentable or required
+landmarks missing/low-visibility) is neither: `detect_flaws` raises
+`UnanalyzableSwingError`, which `/analyze` maps to a clean 500 so an un-analyzed
+swing is never reported as clean.
 
 ## Why these five flaws — the down-the-line test
 
@@ -70,7 +75,11 @@ shaft landmark), so it is the noisiest rule and is flagged for M7 tuning.
 - **Trigger:** a flaw is reported only when `score >= *_TRIGGER` (default `0.5`).
 - **Rank & cap:** triggered flaws sort by score desc (catalog order breaks ties),
   capped at `MAX_REPORTED_FLAWS = 3`, then assigned `priority = 1..N`.
-- **Zero path:** no triggers → `status = no_major_flaws`, empty list.
+- **Zero path:** the engine ran but **zero** flaws triggered → `status =
+  no_major_flaws`, empty list (distinct from one-or-more triggered → `analyzed`).
+- **Unanalyzable path:** the engine could not analyze the swing at all (no context)
+  → raises `UnanalyzableSwingError` → `/analyze` returns a clean 500, never
+  `no_major_flaws`.
 
 All magnitudes are **named constants with a one-line rationale** in
 [`thresholds.py`](../backend/app/detection/thresholds.py), units in fractions of
@@ -141,7 +150,7 @@ gap: a JSON `manifest.json` maps each catalogued clip to its expected result, an
 every clip through the real `validate_video` → `detect_flaws` pipeline.
 
 Per-flaw assertions check **membership + a priority bound** (the target flaw is in
-the reported top 2–3, ranked ≤ a max priority) rather than an exact score or
+the reported top 1–3, ranked ≤ a max priority) rather than an exact score or
 order, so first-pass threshold tuning won't make the suite brittle. Real good/flaw
 footage is committed only when its license is cleared
 ([`fixtures-credits.md`](./fixtures-credits.md)); uncommitted buckets **skip with a

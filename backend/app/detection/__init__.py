@@ -12,11 +12,12 @@ passes, reusing the series that gate already extracted.
 from __future__ import annotations
 
 from app.detection.catalog import FLAW_CATALOG, FlawCopy, FlawId
-from app.detection.engine import detect_flaws
+from app.detection.engine import UnanalyzableSwingError, detect_flaws
 
 __all__ = [
     "FLAW_CATALOG",
     "FlawCopy",
     "FlawId",
+    "UnanalyzableSwingError",
     "detect_flaws",
 ]

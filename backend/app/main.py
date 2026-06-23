@@ -22,7 +22,7 @@ from app.analysis import (
     Scenario,
     build_response,
 )
-from app.detection import detect_flaws
+from app.detection import UnanalyzableSwingError, detect_flaws
 from app.validation import validate_video
 
 _T = TypeVar("_T")
@@ -72,7 +72,7 @@ def _too_large_detail(max_bytes: int) -> str:
 
 app = FastAPI(
     title="Swing Analyzer API",
-    description="Stateless swing analysis service. Upload one swing → top 2–3 flaws.",
+    description="Stateless swing analysis service. Upload one swing → top 1–3 flaws.",
     version="0.1.0",
 )
 
@@ -136,14 +136,14 @@ async def analyze(
     file: Annotated[UploadFile, File()],
     scenario: Annotated[Scenario | None, Form()] = None,
 ) -> AnalyzeResponse:
-    """Analyze one swing video and return the top 2–3 flaws (or a rejection).
+    """Analyze one swing video and return the top 1–3 flaws (or a rejection).
 
     **M6 — real flaw detection, with the M5 gate always in front.** The validation
     gate runs **before** any success result, so a video that fails the capture
     guidelines always returns ``{ status: "rejected", reason }`` and can never be
     reported as good — *regardless of the ``scenario`` field*. On pass, the real M6
     engine runs over the pose ``series`` the gate already extracted (no second pose
-    pass) and returns the top 2–3 catalog flaws, or a valid ``no_major_flaws``
+    pass) and returns the top 1–3 catalog flaws, or a valid ``no_major_flaws``
     result. The upload is processed in an ephemeral temp file and discarded
     immediately — nothing is stored.
 
@@ -245,6 +245,15 @@ async def _run_bounded(func: Callable[..., _T], *args: object, deadline: float) 
         raise HTTPException(status_code=504, detail=_TIMEOUT_DETAIL) from None
     except HTTPException:
         raise
+    except UnanalyzableSwingError as exc:
+        # The gate passed but the engine could not analyze the swing (un-segmentable
+        # or required landmarks missing/low-visibility). Fail loud with a clean 500
+        # rather than letting an un-analyzed swing be reported as clean — consistent
+        # with the "gate passed but series is None" 500 above.
+        raise HTTPException(
+            status_code=500,
+            detail="The swing could not be analyzed. Try a clearer down-the-line clip.",
+        ) from exc
     except Exception as exc:  # noqa: BLE001 — convert any fault into a clean 500
         raise HTTPException(
             status_code=500,

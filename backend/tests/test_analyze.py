@@ -170,6 +170,25 @@ def test_analyze_passing_gate_without_series_fails_loud() -> None:
     assert response.status_code == 500
 
 
+def test_analyze_unanalyzable_series_is_a_clean_500(
+    stub_gate: Callable[[PoseSeries], None],
+) -> None:
+    # The gate passes and hands back a series the engine CANNOT analyze (too few
+    # frames to segment a swing). This must surface as a clean 500 — never a
+    # falsely-clean no_major_flaws — consistent with the "passed but no series"
+    # fault above. Guards the M5 property: a torso-visible clip with unreadable
+    # wrists / too few usable frames can pass the gate and still reach here.
+    from app.detection.thresholds import MIN_DETECTED_FRAMES
+
+    stub_gate(H.make_swing(n=MIN_DETECTED_FRAMES - 1))
+    response = client.post("/analyze", files=_video())
+    assert response.status_code == 500
+    body = response.json()
+    assert body["detail"]
+    # It must NOT have been reported as a clean swing.
+    assert body.get("status") != "no_major_flaws"
+
+
 def test_analyze_rejected_scenario_is_a_single_reason_dev_lever() -> None:
     # The dev lever forces the rejection screen with one specific reason,
     # consistent with the real gate (no longer the legacy 3-detail payload).
