@@ -17,6 +17,7 @@ from app.validation.checks import check_cheap, probe_video
 from scripts.ingest_fixture import (
     IngestError,
     Target,
+    evaluate_clip,
     main,
     resolve_target,
     trim_and_normalize,
@@ -87,6 +88,36 @@ def test_resolve_target_rejects_generated_clip() -> None:
 def test_resolve_target_unknown_id() -> None:
     with pytest.raises(IngestError, match="no manifest clip"):
         resolve_target(clip_id="does-not-exist", bucket=None, name=None, expect_flaw=None)
+
+
+def test_evaluate_clip_handles_unanalyzable_series(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A degenerate clip can clear the gate yet leave the engine unable to
+    # segment the swing (no usable stature scale in any address frame). The
+    # helper must print a clean verdict instead of letting the traceback escape.
+    import scripts.ingest_fixture as mod
+    from app.detection import UnanalyzableSwingError
+    from app.validation.result import ValidationResult
+
+    def _passed_gate(_path: Path) -> tuple[ValidationResult, object]:
+        return ValidationResult(), object()
+
+    def _raise(_series: object) -> tuple[object, list[object]]:
+        raise UnanalyzableSwingError("no usable stature scale")
+
+    monkeypatch.setattr(mod, "validate_video", _passed_gate)
+    monkeypatch.setattr(mod, "detect_flaws", _raise)
+
+    target = Target(
+        bucket="good",
+        relative_path="good/good-dtl-99.mp4",
+        expected_flaw=None,
+        max_priority=3,
+    )
+
+    assert evaluate_clip(Path("unused.mp4"), target) is False
+    assert "NOT USABLE" in capsys.readouterr().out
 
 
 def test_main_is_idempotent_and_refuses_overwrite(

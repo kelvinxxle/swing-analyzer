@@ -51,7 +51,7 @@ frontend's fail-closed parser:
 |---|---|---|---|---|
 | `unreadable` | Unreadable video | Claims `video/*` but won't decode / no frames | cheap | WarningTriangle |
 | `low_resolution` | Resolution too low | Shorter side `< MIN_SHORTER_SIDE_PX` | cheap | Grid |
-| `too_short` | Clip too short | Duration `< MIN_DURATION_S` | cheap | Clock |
+| `too_short` | Clip too short | Duration `< MIN_DURATION_S`, or fewer than `MIN_ANALYZABLE_DETECTED_FRAMES` detected frames | cheap | Clock |
 | `lighting` | Low lighting | Mean luma of sampled frames `< MIN_MEAN_LUMA` | cheap | BrightnessLow |
 | `no_golfer` | No golfer detected | Detected-frame ratio or core visibility too low | pose | PersonOff |
 | `angle` | Angle too wide | Not down-the-line (shoulder span too wide) | pose | VideoOff |

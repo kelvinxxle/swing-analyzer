@@ -43,7 +43,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
-from app.detection import FLAW_CATALOG, detect_flaws  # noqa: E402
+from app.detection import FLAW_CATALOG, UnanalyzableSwingError, detect_flaws  # noqa: E402
 from app.detection import thresholds as DT  # noqa: E402
 from app.validation import thresholds as VT  # noqa: E402
 from app.validation import validate_video  # noqa: E402
@@ -347,7 +347,15 @@ def evaluate_clip(path: Path, target: Target) -> bool:
         print("  verdict: NOT USABLE — gate passed but produced no pose series.")
         return False
 
-    status, flaws = detect_flaws(series)
+    try:
+        status, flaws = detect_flaws(series)
+    except UnanalyzableSwingError:
+        print(
+            "  verdict: NOT USABLE — clip cleared the gate but the swing couldn't be "
+            "segmented (degenerate capture: no usable stature scale in any address "
+            "frame). Re-trim with the full body in frame."
+        )
+        return False
     print(f"  status:  {status.value}")
     if flaws:
         print("  flaws fired (priority → flaw):")
