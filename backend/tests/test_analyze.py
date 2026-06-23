@@ -403,7 +403,9 @@ def test_oversized_content_length_rejected_before_body_is_processed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # The middleware refuses a too-large Content-Length up front: the handler's
-    # drain/gate never run, so the oversized body is never processed.
+    # drain/gate never run, so the oversized body is never processed. The body
+    # must exceed the cap *plus* the multipart-overhead envelope to trip the
+    # up-front guard (a file merely over the cap is caught later, while draining).
     import app.main as main
 
     drained = False
@@ -413,30 +415,89 @@ def test_oversized_content_length_rejected_before_body_is_processed(
         drained = True
         return 0
 
-    monkeypatch.setattr(main, "_max_upload_bytes", lambda: 8)
+    cap = 8
+    monkeypatch.setattr(main, "_max_upload_bytes", lambda: cap)
     monkeypatch.setattr(main, "_drain_to_path", _spy_drain)
-    files = {"file": ("clip.mp4", io.BytesIO(b"way more than eight bytes"), "video/mp4")}
+    oversized = b"x" * (main._content_length_ceiling(cap) + 1)
+    files = {"file": ("clip.mp4", io.BytesIO(oversized), "video/mp4")}
     response = client.post("/analyze", files=files)
     assert response.status_code == 413
     assert drained is False, "the body was processed despite an oversized Content-Length"
 
 
+def test_file_at_limit_passes_guard_while_oversized_still_413s(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The pre-parse Content-Length guard must not reject a FILE that is exactly at
+    # the advertised cap just because multipart framing (boundary + headers + the
+    # scenario field) pushes the request body a little over the cap. The true
+    # FILE-bytes cap is still enforced precisely by the streaming drain.
+    import app.main as main
+    from app.validation.reasons import build_rejection
+    from app.validation.result import RejectionCode, ValidationResult
+
+    cap = 64 * 1024  # large enough that real multipart overhead is a tiny fraction
+    monkeypatch.setattr(main, "_max_upload_bytes", lambda: cap)
+    # Isolate the size guard from the CPU-bound gate: a passing file would need
+    # real footage, so stub the gate to a deterministic rejection. The 200
+    # "rejected" body proves the upload was accepted past the size guard and ran
+    # the real handler (not a transport-level 413).
+    rejection = build_rejection(RejectionCode.UNREADABLE)
+    monkeypatch.setattr(
+        main, "validate_video", lambda *a, **k: (ValidationResult(rejection), None)
+    )
+
+    # A file at *exactly* the limit, wrapped in multipart framing (Content-Length
+    # slightly above the cap), is accepted past both the middleware and the drain.
+    at_limit = {"file": ("clip.mp4", io.BytesIO(b"x" * cap), "video/mp4")}
+    response = client.post("/analyze", files=at_limit)
+    assert response.status_code == 200, "a file exactly at the limit was wrongly rejected"
+    body = response.json()
+    assert body["status"] == "rejected"
+    assert body["reason"]["details"][0]["code"] == RejectionCode.UNREADABLE.value
+
+    # A file within the envelope but genuinely over the FILE cap still 413s — the
+    # drain enforces the true file-bytes cap even though the middleware let it by.
+    over_cap = {"file": ("clip.mp4", io.BytesIO(b"x" * (cap + 1024)), "video/mp4")}
+    response = client.post("/analyze", files=over_cap)
+    assert response.status_code == 413
+
+    # A file far over the cap (beyond the whole envelope) is refused up front by
+    # the middleware before the body is even read.
+    far_over = b"x" * (main._content_length_ceiling(cap) + 1024)
+    files = {"file": ("clip.mp4", io.BytesIO(far_over), "video/mp4")}
+    response = client.post("/analyze", files=files)
+    assert response.status_code == 413
+
+
 def test_analyze_times_out_slow_processing(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A near-zero budget + a gate that blocks → the request returns a clean 504
-    # rather than pinning the event loop on the CPU-bound path.
+    # A near-zero budget + a gate that exceeds it → the request returns a clean
+    # 504 rather than pinning the event loop on the CPU-bound path. With
+    # abandon_on_cancel=True the 504 is genuinely PROMPT: wait_for stops awaiting
+    # the worker at the deadline instead of being shielded until it returns. The
+    # worker thread is NOT force-killed, so the already-dispatched, frame-bounded
+    # work still finishes in the background. This test pins both halves.
+    import threading
     import time
 
     import app.main as main
     from app.validation.result import ValidationResult
 
+    worker_finished = threading.Event()
+
     def _slow_gate(*_a: object, **_k: object) -> tuple[ValidationResult, None]:
-        time.sleep(0.5)
+        time.sleep(0.3)
+        worker_finished.set()
         return ValidationResult(), None
 
     monkeypatch.setattr(main, "_max_analysis_seconds", lambda: 0.05)
     monkeypatch.setattr(main, "validate_video", _slow_gate)
     response = client.post("/analyze", files=_video())
     assert response.status_code == 504
+    # The client's 504 arrives before the worker is done (it is not cancelled)...
+    assert not worker_finished.is_set()
+    # ...but the in-flight, bounded worker still runs to completion afterwards.
+    assert worker_finished.wait(timeout=2.0), "the in-flight worker never finished"
 
 
 def test_analyze_budget_is_shared_across_gate_and_engine(
@@ -484,10 +545,14 @@ def test_oversized_upload_leaves_no_temp_files(
 ) -> None:
     # An oversized 413 (here via the Content-Length middleware) must leave no
     # ephemeral temp artifacts behind — the handler never runs, so none are made.
+    # The body exceeds the cap *plus* the multipart envelope so the up-front guard
+    # fires before any temp file could be created.
     import app.main as main
 
-    monkeypatch.setattr(main, "_max_upload_bytes", lambda: 8)
-    files = {"file": ("clip.mp4", io.BytesIO(b"too many bytes here"), "video/mp4")}
+    cap = 8
+    monkeypatch.setattr(main, "_max_upload_bytes", lambda: cap)
+    oversized = b"x" * (main._content_length_ceiling(cap) + 1)
+    files = {"file": ("clip.mp4", io.BytesIO(oversized), "video/mp4")}
     response = client.post("/analyze", files=files)
     assert response.status_code == 413
     assert list(temp_root.iterdir()) == []

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,11 +48,17 @@ from app.detection import FLAW_CATALOG, UnanalyzableSwingError, detect_flaws  # 
 from app.detection import thresholds as DT  # noqa: E402
 from app.validation import thresholds as VT  # noqa: E402
 from app.validation import validate_video  # noqa: E402
+from app.validation.result import RejectionCode  # noqa: E402
 
 GOLDEN_DIR = _BACKEND_ROOT / "tests" / "fixtures" / "golden"
 MANIFEST_PATH = GOLDEN_DIR / "manifest.json"
 
-VIDEO_BUCKETS = ("good", "flaws", "bad")
+# Buckets use the manifest's vocabulary ({good, flaw, bad_input}) so the ingest
+# verdict logic can't drift from what the golden loader evaluates. Each maps to
+# the on-disk directory the harness reads from.
+BUCKET_DIRS: dict[str, str] = {"good": "good", "flaw": "flaws", "bad_input": "bad"}
+VIDEO_BUCKETS = tuple(BUCKET_DIRS)
+_ALL_REASON_CODES: frozenset[str] = frozenset(code.value for code in RejectionCode)
 DEFAULT_SEGMENT_S = 2.5
 MAX_SEGMENT_S = 3.0
 DEFAULT_FPS = 30.0
@@ -65,6 +72,32 @@ class IngestError(Exception):
     """A user-actionable failure during ingest (bad target, unreadable source…)."""
 
 
+def _flaw_id_for_title(title: str) -> str:
+    """Map a reported flaw title back to its stable catalog id, failing loud.
+
+    Mirrors how the golden harness fails fast: a title that isn't in the catalog
+    map means the flaw copy and ``_TITLE_TO_FLAW_ID`` have drifted. Substituting
+    a placeholder would make an actually-fired flaw look missing, so raise a
+    clear error naming the offending title instead.
+    """
+    flaw_id = _TITLE_TO_FLAW_ID.get(title)
+    if flaw_id is None:
+        raise IngestError(
+            f"reported flaw title {title!r} is not in the flaw catalog — update "
+            f"the flaw copy or _TITLE_TO_FLAW_ID so it maps back to a FlawId."
+        )
+    return flaw_id
+
+
+def _validate_reason_code(reason_code: str, *, source: str) -> str:
+    if reason_code not in _ALL_REASON_CODES:
+        raise IngestError(
+            f"{source} reason_code {reason_code!r} is not a rejection code; choose from "
+            f"{sorted(_ALL_REASON_CODES)}."
+        )
+    return reason_code
+
+
 @dataclass(frozen=True)
 class Target:
     """Where a clip should land and what it is expected to demonstrate."""
@@ -73,10 +106,43 @@ class Target:
     relative_path: str
     expected_flaw: str | None = None
     max_priority: int = DT.MAX_REPORTED_FLAWS
+    reason_code: str | None = None
 
     @property
     def output_path(self) -> Path:
         return GOLDEN_DIR / self.relative_path
+
+
+def _validate_ad_hoc_name(name: str) -> str:
+    stem = name[:-4] if name.endswith(".mp4") else name
+    separators = {"/", os.sep}
+    if os.altsep is not None:
+        separators.add(os.altsep)
+    if (
+        not stem
+        or Path(name).is_absolute()
+        or ".." in name
+        or any(separator in name for separator in separators)
+    ):
+        raise IngestError(
+            f"unsafe --name {name!r}: use a simple filename stem with no path "
+            "separators, '..', or absolute paths."
+        )
+    return stem
+
+
+def _ensure_target_stays_in_bucket(bucket: str, relative_path: str, *, source: str) -> None:
+    output_path = (GOLDEN_DIR / relative_path).resolve()
+    golden_root = GOLDEN_DIR.resolve()
+    bucket_root = (GOLDEN_DIR / BUCKET_DIRS[bucket]).resolve()
+    try:
+        output_path.relative_to(golden_root)
+        output_path.relative_to(bucket_root)
+    except ValueError as exc:
+        raise IngestError(
+            f"{source} path {relative_path!r} resolves outside the "
+            f"{BUCKET_DIRS[bucket]!r} golden fixture bucket."
+        ) from exc
 
 
 # --------------------------------------------------------------------------- #
@@ -93,14 +159,19 @@ def resolve_target(
     bucket: str | None,
     name: str | None,
     expect_flaw: str | None,
+    expect_reason: str | None = None,
     manifest: list[dict[str, object]] | None = None,
 ) -> Target:
     """Resolve the on-disk target from either a manifest id or an explicit bucket.
 
-    A manifest id is the common path: bucket, output path, and expected flaw
-    label are all read from the manifest so the clip lands exactly where the
-    harness looks. ``--bucket``/``--name`` is the ad-hoc escape hatch for clips
-    not (yet) in the manifest.
+    A manifest id is the common path: bucket, output path, and expected label
+    (flaw id for ``flaw`` clips, rejection ``reason_code`` for ``bad_input``) are
+    all read from the manifest so the clip lands exactly where the harness looks
+    and is judged by the same expectation. ``--bucket``/``--name`` is the ad-hoc
+    escape hatch for clips not (yet) in the manifest.
+
+    ``Target.bucket`` always uses the manifest vocabulary ({good, flaw,
+    bad_input}); the on-disk directory is derived via :data:`BUCKET_DIRS`.
     """
     if clip_id is not None:
         clips = manifest if manifest is not None else load_manifest()
@@ -119,8 +190,17 @@ def resolve_target(
         if not isinstance(file_rel, str):
             raise IngestError(f"clip {clip_id!r} has no 'file' path to write to.")
         entry_bucket = str(entry.get("bucket"))
+        if entry_bucket not in BUCKET_DIRS:
+            raise IngestError(
+                f"clip {clip_id!r} has unknown bucket {entry_bucket!r}; expected one "
+                f"of {tuple(BUCKET_DIRS)}."
+            )
+        _ensure_target_stays_in_bucket(
+            entry_bucket, file_rel, source=f"manifest clip {clip_id!r}"
+        )
         expect = entry.get("expect")
         expected_flaw = None
+        reason_code = None
         max_priority = DT.MAX_REPORTED_FLAWS
         if isinstance(expect, dict):
             flaw = expect.get("flaw_in_top")
@@ -129,30 +209,49 @@ def resolve_target(
             mp = expect.get("max_priority")
             if isinstance(mp, int):
                 max_priority = mp
-        dir_bucket = "flaws" if entry_bucket == "flaw" else entry_bucket
+            rc = expect.get("reason_code")
+            if isinstance(rc, str):
+                reason_code = _validate_reason_code(
+                    rc, source=f"manifest clip {clip_id!r}"
+                )
         return Target(
-            bucket=dir_bucket,
+            bucket=entry_bucket,
             relative_path=file_rel,
             expected_flaw=expected_flaw,
             max_priority=max_priority,
+            reason_code=reason_code,
         )
 
     if bucket is None or name is None:
         raise IngestError(
             "specify a manifest clip id, or both --bucket and --name for an ad-hoc clip."
         )
-    if bucket not in VIDEO_BUCKETS:
-        raise IngestError(f"--bucket must be one of {VIDEO_BUCKETS}, got {bucket!r}.")
+    if bucket not in BUCKET_DIRS:
+        raise IngestError(f"--bucket must be one of {tuple(BUCKET_DIRS)}, got {bucket!r}.")
+    if expect_flaw is not None and bucket != "flaw":
+        raise IngestError(
+            f"--expect-flaw is only valid with --bucket 'flaw'; got --bucket {bucket!r}."
+        )
+    if expect_reason is not None and bucket != "bad_input":
+        raise IngestError(
+            "--expect-reason is only valid with --bucket 'bad_input'; got "
+            f"--bucket {bucket!r}."
+        )
     if expect_flaw is not None and expect_flaw not in _ALL_FLAW_IDS:
         raise IngestError(
             f"--expect-flaw {expect_flaw!r} is not a catalog flaw; choose from "
             f"{sorted(_ALL_FLAW_IDS)}."
         )
-    stem = name[:-4] if name.endswith(".mp4") else name
+    if expect_reason is not None:
+        _validate_reason_code(expect_reason, source="--expect-reason")
+    stem = _validate_ad_hoc_name(name)
+    relative_path = f"{BUCKET_DIRS[bucket]}/{stem}.mp4"
+    _ensure_target_stays_in_bucket(bucket, relative_path, source=f"--name {name!r}")
     return Target(
         bucket=bucket,
-        relative_path=f"{bucket}/{stem}.mp4",
+        relative_path=relative_path,
         expected_flaw=expect_flaw,
+        reason_code=expect_reason,
     )
 
 
@@ -181,9 +280,19 @@ def _even(value: int) -> int:
 
 
 def _target_dimensions(width: int, height: int, shorter_side: int) -> tuple[int, int]:
+    """Return output dims that ensure the shorter side is **at least** ``shorter_side``.
+
+    Upscale (preserving aspect ratio) only when the source is below the minimum;
+    a source already at or above it is left at its native resolution (rounded to
+    even dims for the mp4v encoder) rather than forcibly downscaled. This keeps
+    behavior consistent with the docs/README: the gate cares about a floor, so we
+    normalize up to it and otherwise preserve the source detail.
+    """
     shorter = min(width, height)
     if shorter <= 0:
         raise IngestError("source frame has zero size; the video is unreadable.")
+    if shorter >= shorter_side:
+        return _even(width), _even(height)
     scale = shorter_side / shorter
     return _even(round(width * scale)), _even(round(height * scale))
 
@@ -200,8 +309,10 @@ def trim_and_normalize(
     """Trim ``source`` to a short segment, normalize it, and write ``dest``.
 
     Uses OpenCV only (already a project dependency). The output shorter side is
-    normalized to ``shorter_side`` (≥ the gate's ``MIN_SHORTER_SIDE_PX``) and the
-    fps is capped at the source fps so we never fabricate frames beyond it.
+    ensured to be **at least** ``shorter_side`` (≥ the gate's
+    ``MIN_SHORTER_SIDE_PX``): a smaller source is upscaled to the floor, while a
+    source already at or above it keeps its native resolution. The fps is capped
+    at the source fps so we never fabricate frames beyond it.
     """
     shorter_side = max(shorter_side, VT.MIN_SHORTER_SIDE_PX)
     source = Path(source)
@@ -326,9 +437,8 @@ def evaluate_clip(path: Path, target: Target) -> bool:
     if not result.passed:
         reason = result.rejection.details[0].code if result.rejection else "unknown"
         print(f"  gate:    REJECTED — reason '{reason}'")
-        if target.bucket == "bad":
-            print("  verdict: OK — this clip is meant to be rejected by the gate.")
-            return True
+        if target.bucket == "bad_input":
+            return _report_rejection_verdict(target, reason)
         print(
             "  verdict: NOT USABLE — a good/flaw clip must clear the gate. Re-trim "
             "to a true down-the-line angle, brighter/longer/larger as needed (see "
@@ -337,10 +447,10 @@ def evaluate_clip(path: Path, target: Target) -> bool:
         return False
 
     print("  gate:    PASSED")
-    if target.bucket == "bad":
+    if target.bucket == "bad_input":
         print(
-            "  verdict: NOT USABLE — a 'bad' clip is expected to be rejected, but "
-            "the gate passed."
+            "  verdict: NOT USABLE — a 'bad_input' clip is expected to be rejected, "
+            "but the gate passed."
         )
         return False
     if series is None:  # pragma: no cover - defensive; passed implies a series
@@ -359,12 +469,36 @@ def evaluate_clip(path: Path, target: Target) -> bool:
     if flaws:
         print("  flaws fired (priority → flaw):")
         for flaw in flaws:
-            flaw_id = _TITLE_TO_FLAW_ID.get(flaw.title, "?")
+            flaw_id = _flaw_id_for_title(flaw.title)
             print(f"    {flaw.priority}. {flaw.title}  [{flaw_id}]")
     else:
         print("  flaws fired: none")
 
     return _report_bucket_verdict(target, status.value, flaws)
+
+
+def _report_rejection_verdict(target: Target, reason: str) -> bool:
+    """Verdict for a ``bad_input`` clip that the gate rejected.
+
+    USABLE only when the rejection reason matches the manifest's expected
+    ``reason_code`` (any rejection is accepted for an ad-hoc clip with no
+    declared reason), so a clip that rejects for the *wrong* reason is surfaced
+    rather than silently treated as a success.
+    """
+    expected = target.reason_code
+    if expected is None:
+        print("  verdict: OK — this clip is meant to be rejected by the gate.")
+        return True
+    if reason == expected:
+        print(
+            f"  verdict: USABLE — rejected with the expected reason '{expected}'."
+        )
+        return True
+    print(
+        f"  verdict: MISLABELED — rejected for '{reason}' but the manifest expects "
+        f"'{expected}'. Re-trim/re-check so the clip trips the intended gate."
+    )
+    return False
 
 
 def _report_bucket_verdict(target: Target, status: str, flaws: list[object]) -> bool:
@@ -381,11 +515,18 @@ def _report_bucket_verdict(target: Target, status: str, flaws: list[object]) -> 
 
     # flaw bucket
     reported = {
-        _TITLE_TO_FLAW_ID.get(getattr(f, "title", ""), "?"): getattr(f, "priority", 99)
+        _flaw_id_for_title(getattr(f, "title", "")): getattr(f, "priority", 99)
         for f in flaws
     }
     expected = target.expected_flaw
     if expected is None:
+        if not reported:
+            print(
+                "  verdict: NOT USABLE — a 'flaw' clip fired no flaw. It must "
+                "demonstrate a major flaw (pick a clip where one is clearly visible, "
+                "or pass --expect-flaw to pin the one it should show)."
+            )
+            return False
         print("  verdict: USABLE — flaws detected (no expected label to check against).")
         return True
     if expected not in reported:
@@ -426,11 +567,15 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="?",
         help="manifest clip id (e.g. 'early-extension-01'); omit when using --bucket/--name",
     )
-    parser.add_argument("--bucket", choices=VIDEO_BUCKETS, help="ad-hoc bucket dir")
+    parser.add_argument("--bucket", choices=VIDEO_BUCKETS, help="ad-hoc bucket (manifest vocab)")
     parser.add_argument("--name", help="ad-hoc clip name/stem (used with --bucket)")
     parser.add_argument(
         "--expect-flaw",
         help="for ad-hoc flaw clips: the catalog flaw id the clip should demonstrate",
+    )
+    parser.add_argument(
+        "--expect-reason",
+        help="for ad-hoc bad_input clips: the rejection code the gate should return",
     )
     parser.add_argument("--start", type=float, default=0.0, help="trim start (seconds)")
     parser.add_argument("--end", type=float, default=None, help="trim end (seconds)")
@@ -460,6 +605,7 @@ def main(argv: list[str] | None = None) -> int:
             bucket=args.bucket,
             name=args.name,
             expect_flaw=args.expect_flaw,
+            expect_reason=args.expect_reason,
         )
         out_path = target.output_path
         if out_path.exists() and not args.force:

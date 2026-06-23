@@ -11,6 +11,14 @@ import {
   storeAnalysis,
 } from "@/lib/analysis";
 
+// Max raw FILE size, in bytes. This is measured against `file.size` (the file
+// bytes only, before multipart framing) and matches the backend's DEFAULT
+// `MAX_UPLOAD_BYTES` cap (50MB), which is likewise a FILE-bytes cap. Operators
+// can configure the backend cap independently via the `MAX_UPLOAD_BYTES` env
+// var; this constant is the UI's copy of the shipped default. The backend
+// tolerates a small multipart-overhead envelope on top of its cap in the
+// pre-parse Content-Length guard, so a file at exactly this limit is never
+// wrongly rejected with a 413.
 const MAX_BYTES = 50 * 1024 * 1024;
 
 type Phase = "idle" | "uploading" | "analyzing" | "error";
