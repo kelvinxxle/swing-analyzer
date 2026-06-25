@@ -16,8 +16,8 @@ flaws clear the bar. **One triggered flaw is a valid `analyzed` result**; the li
 is never padded, and zero flaws is itself a valid result (per the PRD detection
 boundary). A swing the engine **cannot analyze at all** (un-segmentable or required
 landmarks missing/low-visibility) is neither: `detect_flaws` raises
-`UnanalyzableSwingError`, which `/analyze` maps to a clean 500 so an un-analyzed
-swing is never reported as clean.
+`UnanalyzableSwingError`, which `/analyze` maps to a graceful 200 rejected response
+with reason `framing` so an un-analyzed swing is never reported as clean.
 
 ## Why these five flaws — the down-the-line test
 
@@ -78,8 +78,8 @@ shaft landmark), so it is the noisiest rule and is flagged for M7 tuning.
 - **Zero path:** the engine ran but **zero** flaws triggered → `status =
   no_major_flaws`, empty list (distinct from one-or-more triggered → `analyzed`).
 - **Unanalyzable path:** the engine could not analyze the swing at all (no context)
-  → raises `UnanalyzableSwingError` → `/analyze` returns a clean 500, never
-  `no_major_flaws`.
+  → raises `UnanalyzableSwingError` → `/analyze` returns a graceful **200 rejected**
+  with reason `framing`, never `no_major_flaws`.
 
 All magnitudes are **named constants with a one-line rationale** in
 [`thresholds.py`](../backend/app/detection/thresholds.py), units in fractions of
@@ -115,16 +115,20 @@ short series and that M7 will harden.
    regardless of scenario.
 5. **Real engine** — for a normal upload (no scenario), `detect_flaws` runs (in a
    threadpool) over the returned series and produces the real flaws or the zero
-   result. If the gate reports `passed` but returns no series, **or** hands back a
-   series the engine cannot analyze (`UnanalyzableSwingError`), the handler raises
-   a **500** rather than silently reporting a clean swing. The gate now rejects the
-   **known, user-correctable** causes up front (as 200/rejected; see
-   [validation](./validation.md)): too few analyzable frames → `too_short`, and
-   unreadable hands/wrists → `framing`. So these 500s should now be **rare** rather
-   than an absolute invariant — a genuinely degenerate capture can still trip
-   `UnanalyzableSwingError` (e.g. no address frame has a usable stature scale, from
-   nose+ankles or shoulders+hips), and the guard also still covers any internal
-   caller that bypasses the gate.
+   result. If the gate reports `passed` but returns no series, the handler raises a
+   **500** rather than silently reporting a clean swing (an internal pipeline fault
+   that should never happen on a real upload). If instead the gate hands back a
+   series the engine **cannot analyze** (`UnanalyzableSwingError`), the handler maps
+   it to a graceful **200/rejected** with reason `framing` — the same actionable
+   "reframe the shot" outcome as the gate's unreadable-wrists path — because that is
+   a common, user-correctable real-world capture (no usable stature scale, no
+   top/impact phase peak, empty address/downswing slice) the gate cannot always
+   catch. The gate still rejects the **known, user-correctable** causes up front (as
+   200/rejected; see [validation](./validation.md)): too few analyzable frames →
+   `too_short`, and unreadable hands/wrists → `framing`. The engine's own
+   `UnanalyzableSwingError` guard still covers any internal caller that bypasses the
+   gate (e.g. the fixture-ingest script), where it surfaces as the raised exception
+   rather than an HTTP response.
 
 There is **no filename inference** and **no mock in the success path**. The
 `Flaw` / `AnalyzeResponse` wire shapes are unchanged, so the frontend `/results`

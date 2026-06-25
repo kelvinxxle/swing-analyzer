@@ -29,9 +29,13 @@ class UnanalyzableSwingError(RuntimeError):
     context — e.g. the swing can't be segmented into phases, or the landmarks the
     rules need are missing / below the visibility floor. This is **not** the same
     as "the engine ran and found nothing" (a valid ``NO_MAJOR_FLAWS`` result): an
-    un-analyzed swing must never be reported as clean. The ``/analyze`` handler
-    maps this to a clean HTTP 500, consistent with the "gate passed but series is
-    None" internal-fault path. The M5 gate only guarantees core torso visibility +
+    un-analyzed swing must never be reported as clean. ``detect_flaws`` and any
+    internal caller therefore still see the raised exception. The ``/analyze``
+    boundary, however, maps it to a graceful **200 rejected** response with reason
+    ``framing`` — the same actionable "reframe the shot" outcome as the M5 gate's
+    unreadable-wrists path — rather than a 500, because this is a common, user-
+    correctable real-world capture (only a passing-gate-but-``None``-series internal
+    fault remains a 500). The M5 gate only guarantees core torso visibility +
     angle/framing, so a torso-visible clip with unreadable wrists or too few usable
     frames can pass validation and still land here.
     """
