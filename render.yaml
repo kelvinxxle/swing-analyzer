@@ -18,3 +18,9 @@ services:
       # analysis budget; local/CI default to 1 (accurate).
       - key: POSE_MODEL_COMPLEXITY
         value: "0"
+      # Trim free-tier analysis to fit the 60s budget: ~0.3s/frame on 0.1 vCPU
+      # means 75 sampled frames is about 22s before model init/decode overhead.
+      - key: POSE_TARGET_FPS
+        value: "15"
+      - key: POSE_MAX_FRAMES
+        value: "75"

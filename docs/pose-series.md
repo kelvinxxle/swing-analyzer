@@ -92,6 +92,26 @@ refinement, not needed for the v1 foundation.
 
 Tune via `SamplingConfig(target_fps=…, max_frames=…)`.
 
+### Frame count (env-driven)
+
+Both sampling knobs are **environment-driven**, resolved by
+`SamplingConfig`'s `_default_target_fps` / `_default_max_frames`:
+
+- **Production (`POSE_TARGET_FPS=15`, `POSE_MAX_FRAMES=75`, set in
+  `render.yaml`)** halves the sampled frame rate and frame budget so a real clip
+  fits the free-tier 60 s analysis budget. At ~0.3 s/frame on ~0.1 vCPU, 75
+  frames is ~22 s of pose work before model-init/decode overhead.
+- **Local / CI (unset → `30.0` / `150`)** keep the full sampling density.
+- Any unset, non-numeric, or non-positive value falls back to the default.
+
+Unlike inference downscaling, this is the **frame-count** lever — the last one
+left after input downscaling and the lite model. It is a **deliberate
+temporal-resolution tradeoff, not lossless**: fewer samples slightly coarsen
+phase/peak localization (a ~0.25 s downswing yields ~3–4 frames at 15 fps vs
+~7–8 at 30). It does **not** add new rejections — the gate's
+detection-ratio/framing checks are ratio-based and scale-invariant to the number
+of sampled frames.
+
 ### Inference downscaling
 
 Before each sampled frame is handed to MediaPipe it is **downscaled so its longer
@@ -150,8 +170,9 @@ Notes:
   without dropping frames: every frame is **downscaled to ≤ 480 px on its longer
   edge** before inference (normalized landmarks make this nearly lossless), and
   production runs the **lite pose model** (`POSE_MODEL_COMPLEXITY=0`). The frame
-  budget still bounds the frame count; `max_frames` can be tightened further if
-  needed.
+  budget still bounds the frame count, and production now also **trims it**
+  (`POSE_TARGET_FPS=15`, `POSE_MAX_FRAMES=75`) — a deliberate
+  temporal-resolution tradeoff, see *Frame count (env-driven)* above.
 - Memory: MediaPipe pulls a heavy native stack (jax/jaxlib/opencv); it is
   lazy-imported and the pipeline streams frames, but free-tier RAM (~512 MB)
   should be watched when the endpoint goes live.
