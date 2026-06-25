@@ -23,7 +23,7 @@ from app.analysis import (
     build_response,
 )
 from app.detection import UnanalyzableSwingError, detect_flaws
-from app.validation import validate_video
+from app.validation import RejectionCode, build_rejection, validate_video
 
 _T = TypeVar("_T")
 
@@ -251,7 +251,23 @@ async def analyze(
                 detail="Pose extraction did not produce a series for a passing video.",
             )
 
-        status, flaws = await _run_bounded(detect_flaws, series, deadline=deadline)
+        try:
+            status, flaws = await _run_bounded(detect_flaws, series, deadline=deadline)
+        except UnanalyzableSwingError:
+            # The clip passed the M5 gate but the engine could not assemble an
+            # analysis context (no top/impact phase peak, no usable stature_scale,
+            # empty address/downswing slice) — common on real Render free-tier
+            # MediaPipe data the gate cannot catch. Treat it as a graceful framing
+            # rejection rather than a hard 500: the user gets the same actionable
+            # "reframe the shot" guidance as the gate's unreadable-wrists path. It is
+            # REJECTED with no flaws — never a falsely-clean no_major_flaws. (A
+            # passing-gate-but-None-series fault above is still a loud 500, and a
+            # detect-time timeout still surfaces as a 504 from _run_bounded.)
+            return AnalyzeResponse(
+                status=AnalysisStatus.REJECTED,
+                flaws=[],
+                reason=build_rejection(RejectionCode.FRAMING),
+            )
         return AnalyzeResponse(status=status, flaws=flaws)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -291,15 +307,13 @@ async def _run_bounded(func: Callable[..., _T], *args: object, deadline: float) 
         raise HTTPException(status_code=504, detail=_TIMEOUT_DETAIL) from None
     except HTTPException:
         raise
-    except UnanalyzableSwingError as exc:
-        # The gate passed but the engine could not analyze the swing (un-segmentable
-        # or required landmarks missing/low-visibility). Fail loud with a clean 500
-        # rather than letting an un-analyzed swing be reported as clean — consistent
-        # with the "gate passed but series is None" 500 above.
-        raise HTTPException(
-            status_code=500,
-            detail="The swing could not be analyzed. Try a clearer down-the-line clip.",
-        ) from exc
+    except UnanalyzableSwingError:
+        # Re-raise unchanged so the /analyze handler can map it to a graceful 200
+        # rejected(framing) response. This clause MUST stay after ``except
+        # HTTPException`` and before the bare ``except Exception`` below: because
+        # UnanalyzableSwingError subclasses Exception, putting it after the bare
+        # clause would swallow it into a 500.
+        raise
     except Exception as exc:  # noqa: BLE001 — convert any fault into a clean 500
         raise HTTPException(
             status_code=500,
