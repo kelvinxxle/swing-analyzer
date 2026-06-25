@@ -94,8 +94,9 @@ Tune via `SamplingConfig(target_fps=…, max_frames=…)`.
 
 ### Frame count (env-driven)
 
-Both sampling knobs are **environment-driven**, resolved by
-`SamplingConfig`'s `_default_target_fps` / `_default_max_frames`:
+Both sampling knobs are **environment-driven**, resolved by the module-level
+env-default helpers (`_default_target_fps` / `_default_max_frames`) that back
+`SamplingConfig`'s `target_fps` / `max_frames` defaults:
 
 - **Production (`POSE_TARGET_FPS=15`, `POSE_MAX_FRAMES=75`, set in
   `render.yaml`)** halves the sampled frame rate and frame budget so a real clip

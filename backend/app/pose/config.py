@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 
 from pydantic import BaseModel, Field
@@ -31,7 +32,7 @@ def _default_target_fps() -> float:
 
     Production trims the sampled frame rate via ``POSE_TARGET_FPS`` to fit the
     Render free-tier analysis budget; local/CI default to ``30.0``. Any unset,
-    non-float, or non-positive value falls back to ``30.0``.
+    non-float, non-finite, or non-positive value falls back to ``30.0``.
     """
     raw = os.getenv("POSE_TARGET_FPS")
     if raw is None:
@@ -40,7 +41,7 @@ def _default_target_fps() -> float:
         value = float(raw)
     except ValueError:
         return 30.0
-    if value <= 0:
+    if not math.isfinite(value) or value <= 0:
         return 30.0
     return value
 

@@ -69,6 +69,14 @@ def test_target_fps_non_positive_falls_back(
     assert _default_target_fps() == 30.0
 
 
+@pytest.mark.parametrize("raw", ["nan", "inf", "-inf"])
+def test_target_fps_non_finite_falls_back_to_thirty(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    monkeypatch.setenv("POSE_TARGET_FPS", raw)
+    assert _default_target_fps() == 30.0
+
+
 def test_max_frames_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("POSE_MAX_FRAMES", "75")
     assert _default_max_frames() == 75
