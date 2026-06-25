@@ -15,8 +15,10 @@ This module is **internal** to the backend — M4 does not wire it into the
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import cv2
+import numpy.typing as npt
 
 from app.pose.config import DEFAULT_SAMPLING, SamplingConfig
 from app.pose.estimator import MediaPipePoseEstimator, PoseEstimator
@@ -26,6 +28,28 @@ from app.pose.schema import PoseFrame, PoseSeries
 
 class VideoDecodeError(RuntimeError):
     """Raised when OpenCV cannot open or read the supplied video file."""
+
+
+def _resize_for_inference(
+    frame_bgr: npt.NDArray[Any], max_dimension: int
+) -> npt.NDArray[Any]:
+    """Downscale a frame so its longer edge is ``max_dimension`` px (never upscale).
+
+    MediaPipe cost scales with pixel count, so shrinking large frames before
+    inference is the main speed lever on the Render free tier. Landmarks are
+    stored normalized ``[0, 1]``, so this does not change output coordinates or
+    any downstream geometry — it is nearly lossless. ``INTER_AREA`` is the
+    recommended interpolation for shrinking.
+    """
+    h, w = frame_bgr.shape[:2]
+    longer = max(h, w)
+    if longer <= max_dimension:
+        return frame_bgr
+    scale = max_dimension / longer
+    new_w = max(1, round(w * scale))
+    new_h = max(1, round(h * scale))
+    resized = cv2.resize(frame_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return cast(npt.NDArray[Any], resized)
 
 
 def extract_pose_series(
@@ -52,7 +76,11 @@ def extract_pose_series(
     path = Path(video_path)
     capture = cv2.VideoCapture(str(path))
     owns_estimator = estimator is None
-    pose = estimator if estimator is not None else MediaPipePoseEstimator()
+    pose = (
+        estimator
+        if estimator is not None
+        else MediaPipePoseEstimator(model_complexity=config.pose_model_complexity)
+    )
     try:
         if not capture.isOpened():
             raise VideoDecodeError(f"Could not open video: {path}")
@@ -68,7 +96,14 @@ def extract_pose_series(
             fps = config.target_fps
 
         stride = compute_stride(fps, max(frame_count, 0), config)
-        frames = _decode_and_estimate(capture, fps, stride, pose, config.max_frames)
+        frames = _decode_and_estimate(
+            capture,
+            fps,
+            stride,
+            pose,
+            config.max_frames,
+            config.max_inference_frame_dimension,
+        )
 
         # Frame count / dimensions may be missing in metadata; recover from what
         # we actually decoded so the series is internally consistent.
@@ -103,6 +138,7 @@ def _decode_and_estimate(
     stride: int,
     estimator: PoseEstimator,
     max_frames: int,
+    max_inference_frame_dimension: int,
 ) -> list[PoseFrame]:
     """Walk the video, estimating pose on every ``stride``-th frame.
 
@@ -123,6 +159,9 @@ def _decode_and_estimate(
             ok, frame_bgr = capture.retrieve()
             if not ok:
                 break
+            frame_bgr = _resize_for_inference(
+                frame_bgr, max_inference_frame_dimension
+            )
             frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
             landmarks = estimator.estimate(frame_rgb)
             frames.append(

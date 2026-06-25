@@ -118,9 +118,11 @@ class FakePoseEstimator:
         self._detect = detect
         self.calls = 0
         self.closed = False
+        self.frame_shapes: list[tuple[int, int, int]] = []
 
     def estimate(self, frame_rgb: np.ndarray) -> dict[LandmarkName, Landmark] | None:
         self.calls += 1
+        self.frame_shapes.append(frame_rgb.shape)
         return full_landmark_set() if self._detect else None
 
     def close(self) -> None:
