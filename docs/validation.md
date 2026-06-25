@@ -125,13 +125,11 @@ fails the capture guidelines can never be reported as good — not even with a
      in the success path. The gate already rejects the **known, user-correctable**
      causes of an unanalyzable swing up front — too few analyzable frames →
      `too_short`, and unreadable hands/wrists → `framing` — as a clean
-     200/rejected. If a clip still slips past the gate and the engine cannot
-     assemble a context, the engine's `UnanalyzableSwingError` is mapped at the
-     `/analyze` boundary to a graceful **200/rejected** with reason `framing` (not
-     a 500): a genuinely degenerate capture (e.g. no address frame has a usable
-     stature scale — nose+ankles or shoulders+hips) gets the same actionable
-     "reframe the shot" guidance. The only success-path **500** that remains is the
-     internal-invariant guard for a passing gate that returns no series at all.
+     200/rejected. So the engine's own "cannot analyze" guard
+     (`UnanalyzableSwingError` → HTTP 500) should now be **rare** rather than an
+     absolute invariant: a genuinely degenerate capture can still reach it (e.g.
+     no address frame has a usable stature scale — nose+ankles or shoulders+hips),
+     and the 500 stays as the honest fail-loud for that residual case.
 
 Because the gate runs first, **you can no longer fake a rejection by filename on
 a good clip.** Demoing a rejection now requires either uploading a genuinely bad
@@ -160,10 +158,8 @@ service stays stateless.
   `flaws`, or with a `good`/`sample`-hinted filename, is still rejected — the key
   regression). A passing video drives the **real detection engine** (flawed series
   → `analyzed` with ranked flaws, clean series → `no_major_flaws`, via a stubbed
-  gate); a passing video whose series the engine **cannot analyze** →
-  **200/rejected** with reason `framing` (never a falsely-clean `no_major_flaws`),
-  while a passing gate that returns no series at all stays a loud **500**. Plus the
-  real gate rejecting
+  gate); a passing video whose series the engine **cannot analyze** → clean
+  **500** (never a falsely-clean `no_major_flaws`). Plus the real gate rejecting
   `unreadable` / `low_resolution` / `lighting` / `too_short` (cheap) and
   `no_golfer` (pose, via real MediaPipe on a human-free synthetic clip), and the
   400 guards and ephemeral cleanup.

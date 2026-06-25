@@ -171,27 +171,24 @@ def test_analyze_passing_gate_without_series_fails_loud() -> None:
     assert response.status_code == 500
 
 
-def test_analyze_unanalyzable_series_is_rejected_as_framing(
+def test_analyze_unanalyzable_series_is_a_clean_500(
     stub_gate: Callable[[PoseSeries], None],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # A swing that passes the M5 gate but that build_context cannot assemble into a
-    # context (no top/impact phase peak, no usable stature_scale, empty address/
-    # downswing slice — all common on real Render free-tier MediaPipe data) must
-    # surface as a graceful 200 rejected(framing), NOT a hard 500. build_context
-    # returning None is the real-world trigger; patch it in the engine module's
-    # namespace, which is what detect_flaws actually calls. It must be REJECTED with
-    # no flaws — never a falsely-clean no_major_flaws.
-    import app.detection.engine as engine
+    # Internal-invariant guard: if an internal gate bug ever hands back a series
+    # the engine cannot analyze (too few frames to segment a swing), this must
+    # surface as a clean 500 — never a falsely-clean no_major_flaws — consistent
+    # with the "passed but no series" fault above. On a real upload the gate now
+    # rejects such low-frame clips as too_short before the engine is reached, so
+    # this path is a should-never-happen safety net, not a normal user path.
+    from app.detection.thresholds import MIN_DETECTED_FRAMES
 
-    monkeypatch.setattr(engine, "build_context", lambda series: None)
-    stub_gate(H.make_swing())
+    stub_gate(H.make_swing(n=MIN_DETECTED_FRAMES - 1))
     response = client.post("/analyze", files=_video())
-    assert response.status_code == 200
+    assert response.status_code == 500
     body = response.json()
-    assert body["status"] == "rejected"
-    assert body["flaws"] == []
-    assert _reason_code(body) == "framing"
+    assert body["detail"]
+    # It must NOT have been reported as a clean swing.
+    assert body.get("status") != "no_major_flaws"
 
 
 def test_analyze_real_gate_rejects_too_few_analyzable_frames(
