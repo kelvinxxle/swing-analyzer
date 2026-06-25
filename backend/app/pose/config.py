@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import os
 
 from pydantic import BaseModel, Field
@@ -27,44 +26,6 @@ def _default_pose_model_complexity() -> int:
     return value
 
 
-def _default_target_fps() -> float:
-    """Resolve the frame-sampling ``target_fps`` from the environment.
-
-    Production trims the sampled frame rate via ``POSE_TARGET_FPS`` to fit the
-    Render free-tier analysis budget; local/CI default to ``30.0``. Any unset,
-    non-float, non-finite, or non-positive value falls back to ``30.0``.
-    """
-    raw = os.getenv("POSE_TARGET_FPS")
-    if raw is None:
-        return 30.0
-    try:
-        value = float(raw)
-    except ValueError:
-        return 30.0
-    if not math.isfinite(value) or value <= 0:
-        return 30.0
-    return value
-
-
-def _default_max_frames() -> int:
-    """Resolve the frame-sampling ``max_frames`` cap from the environment.
-
-    Production trims the sampled frame count via ``POSE_MAX_FRAMES`` to fit the
-    Render free-tier analysis budget; local/CI default to ``150``. Any unset,
-    non-integer, or non-positive value falls back to ``150``.
-    """
-    raw = os.getenv("POSE_MAX_FRAMES")
-    if raw is None:
-        return 150
-    try:
-        value = int(raw)
-    except ValueError:
-        return 150
-    if value <= 0:
-        return 150
-    return value
-
-
 class SamplingConfig(BaseModel):
     """How densely to sample frames from the source video.
 
@@ -75,18 +36,16 @@ class SamplingConfig(BaseModel):
     """
 
     target_fps: float = Field(
-        default_factory=_default_target_fps,
+        default=30.0,
         gt=0.0,
         description="Desired effective frame rate to sample at. Clips at or below "
-        "this rate are processed frame-for-frame. Env-overridable via "
-        "POSE_TARGET_FPS so prod can trim frame count for free-tier latency.",
+        "this rate are processed frame-for-frame.",
     )
     max_frames: int = Field(
-        default_factory=_default_max_frames,
+        default=150,
         gt=0,
         description="Hard cap on sampled frames; the stride is widened if a long "
-        "or high-fps clip would otherwise exceed it. Env-overridable via "
-        "POSE_MAX_FRAMES so prod can fit the 60s free-tier analysis budget.",
+        "or high-fps clip would otherwise exceed it.",
     )
     max_inference_frame_dimension: int = Field(
         default=480,

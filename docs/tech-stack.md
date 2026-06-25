@@ -181,16 +181,15 @@ synthetic clip:
 | `validate_video` (incl. MediaPipe model load) | 1.14s | ~0.6s pose pass |
 | `detect_flaws` over in-memory pose series | <1ms | <1ms |
 
-The `max_frames` sampling cap (default `150`, env-overridable via
-`POSE_MAX_FRAMES`) bounds the pose pass regardless of clip length.
+The `max_frames=150` sampling cap bounds the pose pass regardless of clip length.
 On Render's free tier (shared ~0.1 vCPU, no GPU) expect this to be **several×
 slower**, plus a container cold-start of tens of seconds after idle — the default
 60s `MAX_ANALYSIS_SECONDS` budget leaves headroom for a real clip on that
 hardware.
 
-Two **pixel-level** levers (added first to fix free-tier 504s without touching
-the frame count, the 60s budget, or any wire shape) keep a full-resolution phone
-clip inside that budget:
+Two **pixel-level** levers (added to fix free-tier 504s without touching the
+frame count, the 60s budget, or any wire shape) keep a full-resolution phone clip
+inside that budget:
 
 - **Inference downscaling** — each sampled frame is shrunk so its longer edge is
   ≤ `max_inference_frame_dimension` (default 480 px, `INTER_AREA`) **before**
@@ -201,18 +200,6 @@ clip inside that budget:
 - **Env-driven model complexity** — `POSE_MODEL_COMPLEXITY` selects the MediaPipe
   pose model: production sets `0` (lite) in `render.yaml` for speed; local/CI
   default to `1` (accurate).
-
-A third, **frame-count** lever finishes the job once the pixel-level levers are
-exhausted:
-
-- **Env-driven frame sampling** — `POSE_TARGET_FPS` (default `30.0`) and
-  `POSE_MAX_FRAMES` (default `150`) are env-overridable; production sets `15` /
-  `75` in `render.yaml` so a real clip fits the 60s budget (~0.3s/frame on ~0.1
-  vCPU → ~22s for 75 frames). Unlike the pixel levers this is **not** lossless:
-  fewer samples are a deliberate temporal-resolution tradeoff (slightly coarser
-  phase/peak localization). It does **not** add new rejections — the gate's
-  detection-ratio/framing checks are ratio-based and scale-invariant to the
-  sampled frame count.
 
 ### Golden-fixture harness
 
