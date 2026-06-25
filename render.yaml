@@ -14,7 +14,3 @@ services:
       # Set this to the deployed Vercel frontend URL after the first deploy.
       - key: ALLOWED_ORIGINS
         sync: false
-      # Run the lite MediaPipe pose model on the free tier to stay within the
-      # analysis budget; local/CI default to 1 (accurate).
-      - key: POSE_MODEL_COMPLEXITY
-        value: "0"

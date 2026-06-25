@@ -92,23 +92,6 @@ refinement, not needed for the v1 foundation.
 
 Tune via `SamplingConfig(target_fps=…, max_frames=…)`.
 
-### Inference downscaling
-
-Before each sampled frame is handed to MediaPipe it is **downscaled so its longer
-edge is ≤ `max_inference_frame_dimension` (default 480 px)** using `INTER_AREA`
-(`_resize_for_inference` in `app/pose/pipeline.py`). Frames already at or below
-that size are passed through untouched — it **never upscales**.
-
-This is the **safe speed lever**: MediaPipe cost scales with pixel count, so a
-phone clip at 1080×1920 costs ~16× a 270×480 inference frame. Crucially,
-landmarks are stored **normalized `[0, 1]`** (the estimator passes MediaPipe's
-`lm.x`/`lm.y` straight through — see `app/pose/schema.py`), so downscaling the
-*input* frame needs **no** coordinate remapping — the normalized system is
-unchanged, and predicted values shift only negligibly on the smaller input.
-It is therefore nearly lossless while dramatically cutting per-frame latency on
-the Render free tier. Frame **count** is left untouched (the `max_frames` budget
-is unchanged) — pixels, not frames, are the lever here.
-
 ## Pose backend
 
 `MediaPipePoseEstimator` wraps MediaPipe's **legacy `solutions.pose`** API, whose
@@ -121,17 +104,6 @@ for hermetic CI, no model download). It is hidden behind the `PoseEstimator`
 - the backend can later swap to MediaPipe's Tasks API without touching M5/M6.
 
 MediaPipe is imported lazily, so importing the app (or this package) stays cheap.
-
-### Model complexity (env-driven)
-
-The MediaPipe pose `model_complexity` is **environment-driven** via
-`POSE_MODEL_COMPLEXITY`, resolved by `SamplingConfig.pose_model_complexity`:
-
-- **Production (`POSE_MODEL_COMPLEXITY=0`, set in `render.yaml`)** runs the
-  **lite** model — markedly faster on the Render free tier (~0.1 vCPU, no GPU),
-  which is what keeps a real clip inside the 60 s analysis budget.
-- **Local / CI (unset → default `1`)** run the **accurate** full model.
-- Any unset, non-integer, or out-of-range value falls back to `1`.
 
 ## Performance
 
@@ -146,12 +118,9 @@ Notes:
 
 - The 60 fps clip is correctly capped by the 150-frame budget (300 → 150).
 - The **Render free tier** CPU is slower than dev hardware, so expect several×
-  these numbers. Two levers keep the worst case inside the analysis budget
-  without dropping frames: every frame is **downscaled to ≤ 480 px on its longer
-  edge** before inference (normalized landmarks make this nearly lossless), and
-  production runs the **lite pose model** (`POSE_MODEL_COMPLEXITY=0`). The frame
-  budget still bounds the frame count; `max_frames` can be tightened further if
-  needed.
+  these numbers. The frame budget keeps the worst case bounded; if latency
+  becomes an issue once `/analyze` is wired up (M6), options are lowering
+  `model_complexity` to `0` or tightening `max_frames`.
 - Memory: MediaPipe pulls a heavy native stack (jax/jaxlib/opencv); it is
   lazy-imported and the pipeline streams frames, but free-tier RAM (~512 MB)
   should be watched when the endpoint goes live.
