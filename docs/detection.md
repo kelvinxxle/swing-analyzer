@@ -10,14 +10,9 @@
 A passing upload is handed the `PoseSeries` that `validate_video` returns (no
 second pose pass). `detection.detect_flaws(series)` runs every catalog rule,
 scores each flaw `0–1`, keeps only those above their trigger, ranks by score, and
-returns the **top 1–3** as priority-ordered `Flaw`s (the top of however many
-triggered, capped at 3) — or `no_major_flaws` with an empty list when **zero**
-flaws clear the bar. **One triggered flaw is a valid `analyzed` result**; the list
-is never padded, and zero flaws is itself a valid result (per the PRD detection
-boundary). A swing the engine **cannot analyze at all** (un-segmentable or required
-landmarks missing/low-visibility) is neither: `detect_flaws` raises
-`UnanalyzableSwingError`, which `/analyze` maps to a clean 500 so an un-analyzed
-swing is never reported as clean.
+returns the **top 2–3** as priority-ordered `Flaw`s — or `no_major_flaws` with an
+empty list when none clear the bar. **The list is never padded; zero flaws is a
+valid result** (per the PRD detection boundary).
 
 ## Why these five flaws — the down-the-line test
 
@@ -75,11 +70,7 @@ shaft landmark), so it is the noisiest rule and is flagged for M7 tuning.
 - **Trigger:** a flaw is reported only when `score >= *_TRIGGER` (default `0.5`).
 - **Rank & cap:** triggered flaws sort by score desc (catalog order breaks ties),
   capped at `MAX_REPORTED_FLAWS = 3`, then assigned `priority = 1..N`.
-- **Zero path:** the engine ran but **zero** flaws triggered → `status =
-  no_major_flaws`, empty list (distinct from one-or-more triggered → `analyzed`).
-- **Unanalyzable path:** the engine could not analyze the swing at all (no context)
-  → raises `UnanalyzableSwingError` → `/analyze` returns a clean 500, never
-  `no_major_flaws`.
+- **Zero path:** no triggers → `status = no_major_flaws`, empty list.
 
 All magnitudes are **named constants with a one-line rationale** in
 [`thresholds.py`](../backend/app/detection/thresholds.py), units in fractions of
@@ -115,16 +106,8 @@ short series and that M7 will harden.
    regardless of scenario.
 5. **Real engine** — for a normal upload (no scenario), `detect_flaws` runs (in a
    threadpool) over the returned series and produces the real flaws or the zero
-   result. If the gate reports `passed` but returns no series, **or** hands back a
-   series the engine cannot analyze (`UnanalyzableSwingError`), the handler raises
-   a **500** rather than silently reporting a clean swing. The gate now rejects the
-   **known, user-correctable** causes up front (as 200/rejected; see
-   [validation](./validation.md)): too few analyzable frames → `too_short`, and
-   unreadable hands/wrists → `framing`. So these 500s should now be **rare** rather
-   than an absolute invariant — a genuinely degenerate capture can still trip
-   `UnanalyzableSwingError` (e.g. no address frame has a usable stature scale, from
-   nose+ankles or shoulders+hips), and the guard also still covers any internal
-   caller that bypasses the gate.
+   result. If the gate reports `passed` but returns no series, the handler raises
+   a **500** rather than silently reporting a clean swing.
 
 There is **no filename inference** and **no mock in the success path**. The
 `Flaw` / `AnalyzeResponse` wire shapes are unchanged, so the frontend `/results`
@@ -158,7 +141,7 @@ gap: a JSON `manifest.json` maps each catalogued clip to its expected result, an
 every clip through the real `validate_video` → `detect_flaws` pipeline.
 
 Per-flaw assertions check **membership + a priority bound** (the target flaw is in
-the reported top 1–3, ranked ≤ a max priority) rather than an exact score or
+the reported top 2–3, ranked ≤ a max priority) rather than an exact score or
 order, so first-pass threshold tuning won't make the suite brittle. Real good/flaw
 footage is committed only when its license is cleared
 ([`fixtures-credits.md`](./fixtures-credits.md)); uncommitted buckets **skip with a

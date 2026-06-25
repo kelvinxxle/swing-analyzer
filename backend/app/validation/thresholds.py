@@ -9,8 +9,6 @@ their exact magnitudes today.
 
 from __future__ import annotations
 
-from app.detection import thresholds as _ENGINE_THRESHOLDS
-
 # --- Cheap pre-checks (decoded video, before the pose pass) -----------------
 
 # Shorter side, in pixels. Below ~480p the landmark estimate degrades and visual
@@ -38,18 +36,6 @@ MIN_DETECTED_FRAME_RATIO = 0.5
 # Mean MediaPipe visibility of the core torso landmarks across detected frames.
 # Low confidence means the "detection" is noise rather than a framed golfer.
 MIN_MEAN_VISIBILITY = 0.5
-
-# Detected frames required by the M6 phase detector. If the gate lets fewer
-# through, the engine cannot segment the swing, so reject as too short here.
-# Kept as an alias of the engine's floor so validation and detection stay aligned.
-MIN_ANALYZABLE_DETECTED_FRAMES = _ENGINE_THRESHOLDS.MIN_DETECTED_FRAMES
-
-# Visibility floor the engine requires of a landmark before it is usable, and the
-# minimum number of frames in which both wrists must clear it for the phase
-# detector to read hand height. Both alias the engine's values so the gate's
-# wrist precondition mirrors detection exactly (no gap, no false reject).
-MIN_ANALYZABLE_LANDMARK_VISIBILITY = _ENGINE_THRESHOLDS.MIN_LANDMARK_VISIBILITY
-MIN_ANALYZABLE_WRIST_FRAMES = _ENGINE_THRESHOLDS.MIN_USABLE_WRIST_FRAMES
 
 # Max normalized horizontal shoulder span (|left.x − right.x|), averaged over
 # detected frames. Down-the-line places the shoulders nearly in line with the
