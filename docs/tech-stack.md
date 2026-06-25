@@ -93,7 +93,7 @@ FastAPI /analyze  (Python container, stateless)
    ├─ OpenCV → split video into frames
    ├─ MediaPipe Pose → per-frame body landmarks
    ├─ NumPy + geometric rules → score 5–7 catalog flaws
-   └─ return top 1–3 flaws + fix tips  (or "no major flaws")
+   └─ return top 2–3 flaws + fix tips  (or "no major flaws")
         │
         ▼
 Results screen (text-only, prioritized)   ← no DB, video discarded
@@ -135,12 +135,9 @@ browser → backend `POST` is the simplest path that actually carries real clips
 }
 ```
 
-- `analyzed` → **1–3** `flaws` (the top of however many triggered, capped at 3),
-  each with a fix tip → **results** screen. **One triggered flaw is a valid
-  `analyzed` result** — we never require a second flaw.
-- `no_major_flaws` → empty `flaws` → **results** screen, positive state. This means
-  **zero** catalog flaws triggered (a valid PRD result — never pad the list to hit
-  a number).
+- `analyzed` → 2–3 `flaws`, each with a fix tip → **results** screen.
+- `no_major_flaws` → empty `flaws` → **results** screen, positive state (a valid
+  PRD result — never pad the list to hit a number).
 - `rejected` → populated `reason` → **error** screen. `details[].code` (`angle`,
   `lighting`, `no_golfer`) maps to an icon on the frontend.
 - `400` for genuinely bad requests (missing/empty file, non-video content-type) —
@@ -148,7 +145,7 @@ browser → backend `POST` is the simplest path that actually carries real clips
 
 > **M6 status:** real flaw detection is live. A normal upload runs the M5
 > validation gate and then the **rule-based detection engine** (`app/detection/`)
-> over the extracted pose series, returning the real top-1–3 flaws or a valid
+> over the extracted pose series, returning the real top-2–3 flaws or a valid
 > "no major flaws" result. The `scenario` field is now a **canned demo override
 > only**: `flaws`/`clean`/`rejected` short-circuit to a fixed screen so all three
 > paths stay demoable on the deployed URLs. Filename inference has been removed —
@@ -192,7 +189,7 @@ The real correctness safeguard now exists at
 `backend/tests/fixtures/golden/` (manifest + loader,
 `backend/tests/test_golden_fixtures.py`). It runs each catalogued clip through the
 **real** `validate_video` → `detect_flaws` pipeline and asserts the expected
-result kind (good → `no_major_flaws`; per-flaw → that flaw is in the top 1–3 by
+result kind (good → `no_major_flaws`; per-flaw → that flaw is in the top 2–3 by
 membership + priority bound; bad-input → `rejected` with a specific reason code).
 Bad-input clips are generated programmatically (dark, too-short, low-resolution,
 no-golfer, unreadable); real good/flaw footage is committed only when its license
@@ -203,7 +200,7 @@ added incrementally. See the
 
 ## How this maps to the PRD
 
-- **In scope** — 1 swing, 1 prescribed angle, auto-detected flaws, top 1–3 with fix
+- **In scope** — 1 swing, 1 prescribed angle, auto-detected flaws, top 2–3 with fix
   tips, text-only, one-shot with no account. The frontend + `/analyze` service deliver
   exactly this.
 - **Detection boundary** — rule-based scoring over a fixed catalog keeps "detect

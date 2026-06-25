@@ -25,15 +25,8 @@ from __future__ import annotations
 MIN_LANDMARK_VISIBILITY = 0.5
 
 # A swing needs at least this many detected frames to be analyzable at all. The
-# M5 gate mirrors this floor to reject low-frame captures (as too_short) before
-# the engine, so keep this defensive check for any internal caller that bypasses
-# the gate.
+# M5 gate already guarantees ≥50% detection, so this is a defensive floor.
 MIN_DETECTED_FRAMES = 6
-
-# Phase detection needs at least one frame with a usable left/right wrist midpoint
-# to establish a hand-height baseline. The M5 gate mirrors this floor to reject
-# clips where the torso is visible but the hands/wrists are unreadable.
-MIN_USABLE_WRIST_FRAMES = 1
 
 # Fraction of the (detected) series treated as the "address" baseline window,
 # from which every rule measures change. ~15% ≈ the settled setup before motion.
@@ -49,7 +42,7 @@ EARLY_DOWNSWING_FRACTION = 0.4
 # high) from being mistaken for the top of the backswing.
 TOP_PEAK_DROP_FRACTION = 0.5
 
-# Hard cap on reported flaws — the PRD's "top 1–3". We never pad below it, but
+# Hard cap on reported flaws — the PRD's "top 2–3". We never pad below it, but
 # also never exceed it; only the highest-scoring flaws surface.
 MAX_REPORTED_FLAWS = 3
 

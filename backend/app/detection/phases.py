@@ -61,9 +61,6 @@ def detect_phases(detected: list[PoseFrame]) -> SwingPhases | None:
     address_end = min(max(1, round(n * T.ADDRESS_FRACTION)), n)
     wrist_ys = [_mean_wrist_y(frame) for frame in detected]
 
-    if sum(v is not None for v in wrist_ys) < T.MIN_USABLE_WRIST_FRAMES:
-        return None
-
     address_baseline = _mean(wrist_ys[:address_end])
     if address_baseline is None:
         # Hands unreadable at address: fall back to the first usable height.

@@ -137,36 +137,6 @@ def test_pose_no_golfer_takes_priority_over_angle() -> None:
     assert check_pose(_series(frames)) is RejectionCode.NO_GOLFER
 
 
-def test_pose_rejects_too_few_analyzable_frames() -> None:
-    # A golfer is clearly present (all frames detected) but there are fewer than
-    # the engine's frame floor, so the swing can't be segmented. The gate rejects
-    # it as too_short here rather than letting the engine 500 downstream.
-    n = T.MIN_ANALYZABLE_DETECTED_FRAMES - 1
-    frames = [_frame(i, _down_the_line_landmarks()) for i in range(n)]
-    assert check_pose(_series(frames)) is RejectionCode.TOO_SHORT
-
-
-def test_pose_rejects_unreadable_wrists_as_framing() -> None:
-    # A framed golfer (torso visible) but both wrists below the engine's
-    # visibility floor across the whole clip → the phase detector can't read hand
-    # height to segment the swing. Report it as framing (a framed golfer, but not
-    # a fully framed swing), not no_golfer, and never let it 500 in the engine.
-    landmarks = _down_the_line_landmarks()
-    landmarks[LandmarkName.LEFT_WRIST] = Landmark(x=0.5, y=0.6, z=0.0, visibility=0.1)
-    landmarks[LandmarkName.RIGHT_WRIST] = Landmark(x=0.5, y=0.6, z=0.0, visibility=0.1)
-    frames = [_frame(i, landmarks) for i in range(10)]
-    assert check_pose(_series(frames)) is RejectionCode.FRAMING
-
-
-def test_pose_passes_when_wrists_are_readable() -> None:
-    # The same good series with visible wrists clears the wrist precondition.
-    readable = _down_the_line_landmarks()
-    readable[LandmarkName.LEFT_WRIST] = Landmark(x=0.5, y=0.6, z=0.0, visibility=0.9)
-    readable[LandmarkName.RIGHT_WRIST] = Landmark(x=0.5, y=0.6, z=0.0, visibility=0.9)
-    frames = [_frame(i, readable) for i in range(10)]
-    assert check_pose(_series(frames)) is None
-
-
 def test_thresholds_are_sane() -> None:
     assert 0.0 < T.MIN_DETECTED_FRAME_RATIO <= 1.0
     assert 0.0 < T.MAX_OUT_OF_FRAME_RATIO <= 1.0

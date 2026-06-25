@@ -151,10 +151,9 @@ def test_flaws_scenario_cannot_mask_a_bad_clip() -> None:
 
 
 def test_analyze_passing_gate_without_series_fails_loud() -> None:
-    # Internal-invariant guard: if an internal gate bug ever reports 'passed' but
-    # hands back no series (a pipeline fault that should never happen on a real
-    # upload — the gate now rejects low-frame clips as too_short up front), the
-    # endpoint must surface a 500 rather than silently reporting a clean swing.
+    # Defensive P? fix: if the gate reports 'passed' but hands back no series
+    # (an internal pipeline fault), the endpoint must surface a 500 rather than
+    # silently reporting a clean swing.
     import app.main as main
     from app.validation.result import ValidationResult
 
@@ -169,98 +168,6 @@ def test_analyze_passing_gate_without_series_fails_loud() -> None:
     finally:
         main.validate_video = original  # type: ignore[assignment]
     assert response.status_code == 500
-
-
-def test_analyze_unanalyzable_series_is_a_clean_500(
-    stub_gate: Callable[[PoseSeries], None],
-) -> None:
-    # Internal-invariant guard: if an internal gate bug ever hands back a series
-    # the engine cannot analyze (too few frames to segment a swing), this must
-    # surface as a clean 500 — never a falsely-clean no_major_flaws — consistent
-    # with the "passed but no series" fault above. On a real upload the gate now
-    # rejects such low-frame clips as too_short before the engine is reached, so
-    # this path is a should-never-happen safety net, not a normal user path.
-    from app.detection.thresholds import MIN_DETECTED_FRAMES
-
-    stub_gate(H.make_swing(n=MIN_DETECTED_FRAMES - 1))
-    response = client.post("/analyze", files=_video())
-    assert response.status_code == 500
-    body = response.json()
-    assert body["detail"]
-    # It must NOT have been reported as a clean swing.
-    assert body.get("status") != "no_major_flaws"
-
-
-def test_analyze_real_gate_rejects_too_few_analyzable_frames(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # End-to-end through the REAL gate logic: a clip that clears the cheap checks
-    # and shows a golfer but has too few detected frames for the engine to segment
-    # is rejected as too_short (HTTP 200 / rejected), so the user never sees a 500.
-    # A fake estimator stands in for MediaPipe (a synthetic clip has no real human),
-    # so the real check_pose frame-floor is what does the rejecting.
-    from pose_helpers import FakePoseEstimator
-
-    import app.main as main
-    from app.validation import validate_video as real_validate
-
-    def _validate_with_fake(path: object) -> object:
-        return real_validate(path, estimator=FakePoseEstimator(detect=True))  # type: ignore[arg-type]
-
-    monkeypatch.setattr(main, "validate_video", _validate_with_fake)
-    files = _clip_upload(
-        tmp_path / "sparse.mp4", frames=5, fps=5.0, width=720, height=1280, background=128
-    )
-    response = client.post("/analyze", files=files)
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "rejected"
-    assert _reason_code(body) == "too_short"
-
-
-def test_analyze_real_gate_rejects_unreadable_wrists_as_framing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # End-to-end through the REAL gate logic: a clip where the torso is visible
-    # but both wrists are below the engine's visibility floor across the clip. The
-    # phase detector can't read hand height to segment the swing, so the gate
-    # rejects it as framing (HTTP 200 / rejected) — it never reaches the engine's
-    # 500. A torso-visible-but-unreadable-wrists estimator stands in for MediaPipe.
-    import app.main as main
-    from app.pose.schema import LANDMARK_ORDER, Landmark, LandmarkName
-    from app.validation import validate_video as real_validate
-
-    class _UnreadableWristEstimator:
-        def __init__(self) -> None:
-            self.calls = 0
-            self.closed = False
-
-        def estimate(self, frame_rgb: object) -> dict[LandmarkName, Landmark]:
-            self.calls += 1
-            landmarks = {
-                name: Landmark(x=0.5, y=0.5, z=0.0, visibility=0.9) for name in LANDMARK_ORDER
-            }
-            landmarks[LandmarkName.LEFT_SHOULDER] = Landmark(x=0.50, y=0.4, z=0.0, visibility=0.9)
-            landmarks[LandmarkName.RIGHT_SHOULDER] = Landmark(x=0.55, y=0.4, z=0.0, visibility=0.9)
-            landmarks[LandmarkName.LEFT_WRIST] = Landmark(x=0.5, y=0.6, z=0.0, visibility=0.1)
-            landmarks[LandmarkName.RIGHT_WRIST] = Landmark(x=0.5, y=0.6, z=0.0, visibility=0.1)
-            return landmarks
-
-        def close(self) -> None:
-            self.closed = True
-
-    def _validate_with_fake(path: object) -> object:
-        return real_validate(path, estimator=_UnreadableWristEstimator())  # type: ignore[arg-type]
-
-    monkeypatch.setattr(main, "validate_video", _validate_with_fake)
-    files = _clip_upload(
-        tmp_path / "torso_only.mp4", frames=60, fps=30.0, width=720, height=1280, background=128
-    )
-    response = client.post("/analyze", files=files)
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "rejected"
-    assert _reason_code(body) == "framing"
 
 
 def test_analyze_rejected_scenario_is_a_single_reason_dev_lever() -> None:

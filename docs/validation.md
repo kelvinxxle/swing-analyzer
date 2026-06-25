@@ -51,11 +51,11 @@ frontend's fail-closed parser:
 |---|---|---|---|---|
 | `unreadable` | Unreadable video | Claims `video/*` but won't decode / no frames | cheap | WarningTriangle |
 | `low_resolution` | Resolution too low | Shorter side `< MIN_SHORTER_SIDE_PX` | cheap | Grid |
-| `too_short` | Clip too short | Duration `< MIN_DURATION_S`, or fewer than `MIN_ANALYZABLE_DETECTED_FRAMES` detected frames | cheap (duration) / pose (frame floor) | Clock |
+| `too_short` | Clip too short | Duration `< MIN_DURATION_S` | cheap | Clock |
 | `lighting` | Low lighting | Mean luma of sampled frames `< MIN_MEAN_LUMA` | cheap | BrightnessLow |
 | `no_golfer` | No golfer detected | Detected-frame ratio or core visibility too low | pose | PersonOff |
 | `angle` | Angle too wide | Not down-the-line (shoulder span too wide) | pose | VideoOff |
-| `framing` | Swing out of frame | Key landmarks leave the frame too often, **or** the hands/wrists are unreadable (can't segment the swing) | pose | ScanFrame |
+| `framing` | Swing out of frame | Key landmarks leave the frame too often | pose | ScanFrame |
 
 The `angle` / `lighting` / `no_golfer` titles match
 `docs/design/screens/04-error-rejection.png` exactly. A rejection carries a single
@@ -79,9 +79,8 @@ never test angle/framing when there's no golfer.
 4. `lighting` — mean luma over `BRIGHTNESS_SAMPLE_FRAMES` evenly-spaced frames `< MIN_MEAN_LUMA`.
 5. *(extract `PoseSeries` once)*
 6. `no_golfer` — detected-frame ratio `< MIN_DETECTED_FRAME_RATIO`, or mean visibility of the core torso landmarks `< MIN_MEAN_VISIBILITY`.
-7. `too_short` — fewer than `MIN_ANALYZABLE_DETECTED_FRAMES` detected frames. A golfer is present but the capture is too sparse for the M6 phase detector to segment the swing, so we reject here (as `too_short`) rather than let the engine fail downstream. This floor is an alias of the engine's `MIN_DETECTED_FRAMES`, so validation and detection stay aligned.
-8. `angle` — mean normalized shoulder span `|left.x − right.x|` over detected frames `> MAX_SHOULDER_SPAN_X` (down-the-line keeps the shoulders nearly in line with the camera, so they overlap in x; a wide/face-on angle spreads them).
-9. `framing` — either (a) fewer than `MIN_ANALYZABLE_WRIST_FRAMES` detected frames have **both** wrists at visibility ≥ `MIN_ANALYZABLE_LANDMARK_VISIBILITY` (the hands are present but unreadable, so the engine can't read hand height to segment the swing — checked first), or (b) the fraction of detected frames where a key landmark (nose, wrists, ankles, feet) sits outside `[−OUT_OF_FRAME_TOL, 1 + OUT_OF_FRAME_TOL]` `> MAX_OUT_OF_FRAME_RATIO`. The wrist-readability floor mirrors the engine's `MIN_USABLE_WRIST_FRAMES` / `MIN_LANDMARK_VISIBILITY` so the gate and detection stay aligned.
+7. `angle` — mean normalized shoulder span `|left.x − right.x|` over detected frames `> MAX_SHOULDER_SPAN_X` (down-the-line keeps the shoulders nearly in line with the camera, so they overlap in x; a wide/face-on angle spreads them).
+8. `framing` — fraction of detected frames where a key landmark (nose, wrists, ankles, feet) sits outside `[−OUT_OF_FRAME_TOL, 1 + OUT_OF_FRAME_TOL]` `> MAX_OUT_OF_FRAME_RATIO`.
 
 Unknown metadata (missing dimensions/duration) is treated as "can't tell" and
 never causes a false rejection.
@@ -101,35 +100,21 @@ fails the capture guidelines can never be reported as good — not even with a
 "good"-named filename. The order is:
 
 1. Request guards (missing/empty file, non-`video/*` content type) → HTTP 400.
-2. **Demo override — `rejected` only (form field):** an explicit
-   `scenario=rejected` short-circuits to the canned rejection screen *before* the
-   gate. It **forces a failure**, so it can never mask a bad video as good — which
-   is why it's the only scenario allowed to bypass the gate. Reachable only via the
-   form field, **never via the user-controlled filename**, and a normal upload
-   never sets one. `scenario=clean` / `scenario=flaws` do **not** short-circuit
-   here — they run the real gate first (step 4 below).
+2. **Demo override (form field only):** an explicit `scenario` short-circuits to
+   a **canned demo screen** *before* the gate, so all three result screens stay
+   demoable on the live URLs: `scenario=rejected` → fixed rejection,
+   `scenario=clean` → fixed "no major flaws", `scenario=flaws` → fixed analyzed
+   result. These are dev levers reachable only via the form field, **never via
+   the user-controlled filename**, and a normal upload never sets one.
 3. **Real gate:** `validate_video(tmp_path)` runs (offloaded to a worker thread
    via `anyio.to_thread.run_sync`, since it's CPU-bound OpenCV + MediaPipe). If it
    fails → return the specific rejection (→ Error screen). This cannot be
-   bypassed by filename **or** by `scenario=clean` / `scenario=flaws`.
-4. **Only after the video passes:**
-   - **Demo override — `clean` / `flaws` (form field):** if set, return the matching
-     canned success screen (`scenario=clean` → fixed "no major flaws",
-     `scenario=flaws` → fixed analyzed result), so both success screens stay
-     demoable on the live URLs. These run **only after the real gate has passed**,
-     so a bad video under `scenario=clean` / `flaws` is still rejected by the gate.
-   - **Real engine (no scenario):** the **real M6 detection engine**
-     (`app/detection/`) runs over the pose series that `validate_video` already
-     extracted (no second pose pass) and returns the genuine top-1–3 flaws, or a
-     valid `no_major_flaws` zero result. There is no filename inference and no mock
-     in the success path. The gate already rejects the **known, user-correctable**
-     causes of an unanalyzable swing up front — too few analyzable frames →
-     `too_short`, and unreadable hands/wrists → `framing` — as a clean
-     200/rejected. So the engine's own "cannot analyze" guard
-     (`UnanalyzableSwingError` → HTTP 500) should now be **rare** rather than an
-     absolute invariant: a genuinely degenerate capture can still reach it (e.g.
-     no address frame has a usable stature scale — nose+ankles or shoulders+hips),
-     and the 500 stays as the honest fail-loud for that residual case.
+   bypassed by filename.
+4. **Only after the video passes**, the **real M6 detection engine**
+   (`app/detection/`) runs over the pose series that `validate_video` already
+   extracted (no second pose pass) and returns the genuine top-2–3 flaws, or a
+   valid `no_major_flaws` zero result. There is no filename inference and no mock
+   in the success path.
 
 Because the gate runs first, **you can no longer fake a rejection by filename on
 a good clip.** Demoing a rejection now requires either uploading a genuinely bad
@@ -151,25 +136,21 @@ service stays stateless.
   and the decode/pose rejections (injected fake estimator).
 - `backend/tests/test_validation_reasons.py` — every code yields a well-formed
   reason and the code set stays in lockstep with the frontend.
-- `backend/tests/test_analyze.py` — the wired endpoint: `scenario=rejected`
-  short-circuits to its canned rejection *before* the gate, while
-  `scenario=clean` / `flaws` run the **real gate first** and only return their
-  canned success screen *after* it passes (a bad clip under `scenario=clean` /
-  `flaws`, or with a `good`/`sample`-hinted filename, is still rejected — the key
-  regression). A passing video drives the **real detection engine** (flawed series
-  → `analyzed` with ranked flaws, clean series → `no_major_flaws`, via a stubbed
-  gate); a passing video whose series the engine **cannot analyze** → clean
-  **500** (never a falsely-clean `no_major_flaws`). Plus the real gate rejecting
-  `unreadable` / `low_resolution` / `lighting` / `too_short` (cheap) and
-  `no_golfer` (pose, via real MediaPipe on a human-free synthetic clip), and the
+- `backend/tests/test_analyze.py` — the wired endpoint: a `scenario` form field
+  short-circuits to its canned demo screen, the gate runs **before** the real
+  engine (a bad clip with a `good`/`sample`-hinted filename is still rejected —
+  the key regression), a passing video drives the **real detection engine**
+  (flawed series → `analyzed` with ranked flaws, clean series → `no_major_flaws`,
+  via a stubbed gate), the `scenario=rejected` dev lever, and the real gate
+  rejecting `unreadable` / `low_resolution` / `lighting` / `too_short` (cheap) and
+  `no_golfer` (pose, via real MediaPipe on a human-free synthetic clip), plus the
   400 guards and ephemeral cleanup.
 - `backend/tests/test_detection_*.py` — the M6 engine in isolation over synthetic
   pose series: each flaw rule scores high on a series engineered to exhibit it and
   low on a clean series (`test_detection_rules.py`), coarse phase detection
-  (`test_detection_phases.py`), and ranking / top-3 cap / single-flaw `analyzed` /
-  zero-result `no_major_flaws` / unanalyzable-series-raises path
-  (`test_detection_engine.py`). Real-clip threshold tuning is deferred to M7
-  (golden fixtures).
+  (`test_detection_phases.py`), and ranking / top-3 cap / zero-result
+  `no_major_flaws` path (`test_detection_engine.py`). Real-clip threshold tuning
+  is deferred to M7 (golden fixtures).
 - `frontend/src/lib/analysis.test.ts`, `ReasonCard.test.tsx`, `e2e/smoke.spec.ts`
   — the new codes parse, render an icon, and route to the Error screen.
 
