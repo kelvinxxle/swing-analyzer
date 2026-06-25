@@ -195,8 +195,8 @@ inside that budget:
   ≤ `max_inference_frame_dimension` (default 480 px, `INTER_AREA`) **before**
   pose inference, and never upscaled. MediaPipe cost scales with pixel count, so
   this is the dominant saving. Because landmarks are stored **normalized
-  `[0, 1]`**, downscaling the input does not move any output coordinate — it is
-  nearly lossless.
+  `[0, 1]`**, downscaling the input needs no coordinate remapping (the normalized
+  system is unchanged); predicted values shift only negligibly — nearly lossless.
 - **Env-driven model complexity** — `POSE_MODEL_COMPLEXITY` selects the MediaPipe
   pose model: production sets `0` (lite) in `render.yaml` for speed; local/CI
   default to `1` (accurate).

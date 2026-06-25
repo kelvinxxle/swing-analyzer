@@ -37,8 +37,9 @@ def _resize_for_inference(
 
     MediaPipe cost scales with pixel count, so shrinking large frames before
     inference is the main speed lever on the Render free tier. Landmarks are
-    stored normalized ``[0, 1]``, so this does not change output coordinates or
-    any downstream geometry — it is nearly lossless. ``INTER_AREA`` is the
+    stored normalized ``[0, 1]``, so this requires no coordinate remapping — the
+    normalized values change only as much as the model's prediction does on the
+    smaller input, which is negligible (nearly lossless). ``INTER_AREA`` is the
     recommended interpolation for shrinking.
     """
     h, w = frame_bgr.shape[:2]
@@ -46,8 +47,12 @@ def _resize_for_inference(
     if longer <= max_dimension:
         return frame_bgr
     scale = max_dimension / longer
-    new_w = max(1, round(w * scale))
-    new_h = max(1, round(h * scale))
+    if w >= h:
+        new_w = max_dimension
+        new_h = max(1, round(h * scale))
+    else:
+        new_h = max_dimension
+        new_w = max(1, round(w * scale))
     resized = cv2.resize(frame_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
     return cast(npt.NDArray[Any], resized)
 
@@ -105,8 +110,9 @@ def extract_pose_series(
             config.max_inference_frame_dimension,
         )
 
-        # Frame count / dimensions may be missing in metadata; recover from what
-        # we actually decoded so the series is internally consistent.
+        # Frame count may be missing in metadata; recover it from the decoded
+        # frames. Width/height fall back to 1×1 if the container omits them so the
+        # series stays internally consistent.
         if frame_count <= 0:
             frame_count = frames[-1].source_frame_index + 1 if frames else 0
         if width <= 0 or height <= 0:

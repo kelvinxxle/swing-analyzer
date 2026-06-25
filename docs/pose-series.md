@@ -100,10 +100,11 @@ edge is ≤ `max_inference_frame_dimension` (default 480 px)** using `INTER_AREA
 that size are passed through untouched — it **never upscales**.
 
 This is the **safe speed lever**: MediaPipe cost scales with pixel count, so a
-phone clip at 1080×1920 costs ~16× a 405×720 inference frame. Crucially,
+phone clip at 1080×1920 costs ~16× a 270×480 inference frame. Crucially,
 landmarks are stored **normalized `[0, 1]`** (the estimator passes MediaPipe's
 `lm.x`/`lm.y` straight through — see `app/pose/schema.py`), so downscaling the
-*input* frame does **not** change output coordinates or any downstream geometry.
+*input* frame needs **no** coordinate remapping — the normalized system is
+unchanged, and predicted values shift only negligibly on the smaller input.
 It is therefore nearly lossless while dramatically cutting per-frame latency on
 the Render free tier. Frame **count** is left untouched (the `max_frames` budget
 is unchanged) — pixels, not frames, are the lever here.
