@@ -9,6 +9,7 @@ bar.
 from __future__ import annotations
 
 import detection_helpers as H
+import pytest
 
 from app.analysis import AnalysisStatus, Flaw
 from app.detection.catalog import CATALOG_ORDER, FLAW_CATALOG, FlawId
@@ -90,6 +91,51 @@ def test_every_reported_flaw_has_complete_copy() -> None:
         assert flaw.title.strip()
         assert flaw.description.strip()
         assert flaw.fix.strip()
+
+
+def test_suppressed_only_flaw_becomes_no_major_flaws(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # With head_sway suppressed from the output, a swing whose only triggered
+    # flaw is head_sway reads as a clean swing (the rule still ran).
+    monkeypatch.setenv("SUPPRESSED_FLAW_IDS", "head_sway")
+    status, flaws = detect_flaws(H.make_swing({H.HEAD_SWAY}))
+    assert status is AnalysisStatus.NO_MAJOR_FLAWS
+    assert flaws == []
+
+
+def test_suppressed_flaw_drops_out_but_others_remain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # head_sway is filtered from the output while loss_of_posture survives.
+    monkeypatch.setenv("SUPPRESSED_FLAW_IDS", "head_sway")
+    status, flaws = detect_flaws(H.make_swing({H.HEAD_SWAY, H.LOSS_OF_POSTURE}))
+    assert status is AnalysisStatus.ANALYZED
+    ids = _ids(flaws)
+    assert FlawId.HEAD_SWAY not in ids
+    assert FlawId.LOSS_OF_POSTURE in ids
+    assert [flaw.priority for flaw in flaws] == list(range(1, len(flaws) + 1))
+
+
+def test_unset_env_leaves_behavior_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # No env var → no suppression → head_sway is still reported (baseline).
+    monkeypatch.delenv("SUPPRESSED_FLAW_IDS", raising=False)
+    status, flaws = detect_flaws(H.make_swing({H.HEAD_SWAY}))
+    assert status is AnalysisStatus.ANALYZED
+    assert _ids(flaws) == [FlawId.HEAD_SWAY]
+
+
+@pytest.mark.parametrize("value", ["", "not_a_real_flaw", "  , ,"])
+def test_empty_or_garbage_env_suppresses_nothing(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    # Empty / unknown tokens must not crash and must suppress nothing.
+    monkeypatch.setenv("SUPPRESSED_FLAW_IDS", value)
+    status, flaws = detect_flaws(H.make_swing({H.HEAD_SWAY}))
+    assert status is AnalysisStatus.ANALYZED
+    assert _ids(flaws) == [FlawId.HEAD_SWAY]
 
 
 def test_unanalyzable_series_is_no_major_flaws() -> None:

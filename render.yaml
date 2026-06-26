@@ -14,3 +14,7 @@ services:
       # Set this to the deployed Vercel frontend URL after the first deploy.
       - key: ALLOWED_ORIGINS
         sync: false
+      # Comma-separated FlawId values to filter from analysis output (rules still
+      # run). Set to silence the head-sway flaw for the demo; clear to re-enable.
+      - key: SUPPRESSED_FLAW_IDS
+        value: head_sway
