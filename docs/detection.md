@@ -78,6 +78,23 @@ stature or degrees. They are **first-pass values** chosen against the DTL geomet
 and the synthetic fixtures; **real-clip tuning is deferred to M7** (golden
 fixtures), which can retune without touching rule code.
 
+## Output suppression (`SUPPRESSED_FLAW_IDS`)
+
+The optional `SUPPRESSED_FLAW_IDS` environment variable (read by `detect_flaws`
+per call) is a **comma-separated list of `FlawId` values** to drop from the
+analysis **output only** — the rules still run, the listed flaws are simply
+filtered out **before** ranking/top-3 selection, so a suppressed flaw never
+consumes a slot. Parsing is defensive: tokens are stripped, lowercased, and any
+empty or unknown value is ignored (it never raises). Unset or empty means **no
+suppression** (zero behavior change), so existing tests and clean swings are
+unaffected. If a swing's only triggered flaw is suppressed, the result correctly
+reads `no_major_flaws`.
+
+This is a reversible operational lever, not a detection change — flip the env var
+to re-enable a flaw with **no code change**. It is currently set to `head_sway`
+in production (see [`render.yaml`](../render.yaml)) to silence the head-sway flaw
+for the demo while the rule itself is left untouched.
+
 ## Swing phases (coarse, M7-refined)
 
 [`phases.py`](../backend/app/detection/phases.py) derives, from the detected-frame
